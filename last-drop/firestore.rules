@@ -1,0 +1,140 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidTagCode(code) {
+      return code is string && code.size() == 4 && code.matches('^[0-9]{4}$');
+    }
+
+    function isValidEquipped(eq) {
+      return eq is map
+        && eq.keys().hasAll(['skin', 'pickaxe', 'backbling', 'glider', 'music'])
+        && eq.keys().hasOnly(['skin', 'pickaxe', 'backbling', 'glider', 'music'])
+        && eq.skin is string && eq.skin.size() >= 1 && eq.skin.size() <= 40
+        && eq.pickaxe is string && eq.pickaxe.size() >= 1 && eq.pickaxe.size() <= 40
+        && eq.backbling is string && eq.backbling.size() >= 1 && eq.backbling.size() <= 40
+        && eq.glider is string && eq.glider.size() >= 1 && eq.glider.size() <= 40
+        && eq.music is string && eq.music.size() >= 1 && eq.music.size() <= 40;
+    }
+
+    function isValidStats(st) {
+      return st is map
+        && st.keys().hasAll(['g', 'w', 'k', 'd', 'b', 'dm'])
+        && st.keys().hasOnly(['g', 'w', 'k', 'd', 'b', 'dm'])
+        && st.g is number && st.g >= 0
+        && st.w is number && st.w >= 0
+        && st.k is number && st.k >= 0
+        && st.d is number && st.d >= 0
+        && st.b is number && st.b >= 0
+        && st.dm is number && st.dm >= 0;
+    }
+
+    function isValidUserAccount(data) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'tagId', 'coins', 'xp', 'hype',
+          'eq', 'sk', 'ownedCosmetics', 'equipped', 's', 'mode',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'tagId', 'coins', 'xp', 'hype',
+          'eq', 'sk', 'ownedCosmetics', 'equipped', 's', 'mode',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 24
+        && data.tagId is string
+        && data.tagId.size() == 5
+        && data.tagId.matches('^#[0-9]{4}$')
+        && data.coins is number && data.coins >= 0 && data.coins <= 10000000
+        && data.xp is number && data.xp >= 0 && data.xp <= 100000000
+        && data.hype is number && data.hype >= 0 && data.hype <= 1000000
+        && data.eq is number && data.eq >= -1 && data.eq <= 20
+        && data.sk is list && data.sk.size() <= 20 && (data.sk.size() == 0 || data.sk[0] is number)
+        && data.ownedCosmetics is list
+        && data.ownedCosmetics.size() >= 1
+        && data.ownedCosmetics.size() <= 64
+        && data.ownedCosmetics[0] is string
+        && isValidEquipped(data.equipped)
+        && isValidStats(data.s)
+        && data.mode is number && (data.mode == 0 || data.mode == 1)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAccountTagClaim(data, tagCode) {
+      return data.keys().hasAll(['uid', 'tagId', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'tagId', 'createdAt'])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.tagId is string
+        && data.tagId.size() == 5
+        && data.tagId == ('#' + tagCode)
+        && data.createdAt == request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserAccount(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/accountTags/$(incoming().tagId[1:5]));
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserAccount(incoming())
+        && incoming().uid == existing().uid
+        && incoming().tagId == existing().tagId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'coins', 'xp', 'hype', 'eq', 'sk',
+          'ownedCosmetics', 'equipped', 's', 'mode', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    match /accountTags/{tagCode} {
+      allow get: if isValidTagCode(tagCode) && isSignedIn();
+      allow list: if false;
+      allow create: if isValidTagCode(tagCode)
+        && isSignedIn()
+        && isValidAccountTagClaim(incoming(), tagCode)
+        && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update, delete: if false;
+    }
+  }
+}

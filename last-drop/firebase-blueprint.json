@@ -1,0 +1,134 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Persistent player game profile, cosmetics, match stats, and unique randomized #XXXX tag ID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the account owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Player display name shown in lobby and matches.",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "tagId": {
+          "type": "string",
+          "description": "Unique randomized 4-digit account ID formatted as #XXXX.",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^#[0-9]{4}$"
+        },
+        "coins": {
+          "type": "number",
+          "description": "Current shop coin balance."
+        },
+        "xp": {
+          "type": "number",
+          "description": "Total accumulated account XP."
+        },
+        "hype": {
+          "type": "number",
+          "description": "Arena ranked Hype points."
+        },
+        "eq": {
+          "type": "number",
+          "description": "Legacy crate glider index (-1 if using catalog glider)."
+        },
+        "sk": {
+          "type": "array",
+          "description": "Unlocked legacy crate glider indices."
+        },
+        "ownedCosmetics": {
+          "type": "array",
+          "description": "IDs of owned skins, pickaxes, back blings, gliders, and lobby music tracks."
+        },
+        "equipped": {
+          "type": "object",
+          "description": "Currently equipped cosmetic IDs per category."
+        },
+        "s": {
+          "type": "object",
+          "description": "Lifetime match statistics (g, w, k, d, b, dm)."
+        },
+        "mode": {
+          "type": "number",
+          "description": "Selected match queue mode (0 Solo, 1 Arena Ranked)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the account was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest profile update."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "tagId",
+        "coins",
+        "xp",
+        "hype",
+        "eq",
+        "sk",
+        "ownedCosmetics",
+        "equipped",
+        "s",
+        "mode",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AccountTagClaim": {
+      "title": "AccountTagClaim",
+      "description": "Uniqueness reservation for a randomized 4-digit #XXXX account tag.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "UID of the user who claimed this tag.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "tagId": {
+          "type": "string",
+          "description": "Formatted #XXXX tag.",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^#[0-9]{4}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the tag was claimed."
+        }
+      },
+      "required": ["uid", "tagId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserAccount"
+      },
+      "description": "Private persistent player progress and cosmetics document, keyed by Firebase Auth UID."
+    },
+    "/accountTags/{tagCode}": {
+      "schema": {
+        "$ref": "#/entities/AccountTagClaim"
+      },
+      "description": "Global registry of claimed 4-digit numeric tag codes (e.g. 0192) to guarantee randomized account ID uniqueness."
+    }
+  }
+}

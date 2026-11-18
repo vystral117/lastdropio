@@ -1,0 +1,6 @@
+{
+  "name": "Last Drop",
+  "description": "Fast-paced 16-player top-down 2D battle royale with destructible cover, buildings, airdrops, skin crates, and Casual & ranked Arena modes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
