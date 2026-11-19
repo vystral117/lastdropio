@@ -6,11 +6,12 @@ import {
   PLAYER_RADIUS,
   POIS,
   RARITY_TIERS,
+  SPAWN_ISLAND,
   STORM_RADII,
   WP,
 } from './constants';
 import { GameEngine } from './engine';
-import { GameSettings, Player, RarityTier } from './types';
+import { CosmeticItem, GameSettings, Player, RarityTier } from './types';
 
 function drawWeaponSprite(g: CanvasRenderingContext2D, w: number, rarity: RarityTier = 0) {
   const accent = rarity > 0 ? RARITY_TIERS[rarity].color : WP[w].color;
@@ -233,6 +234,71 @@ function drawEquippedBackBling(g: CanvasRenderingContext2D, p: Player) {
   g.restore();
 }
 
+const PICKAXE_STYLES: Record<
+  string,
+  { head: string; edge: string; shaft: string; collar: string }
+> = {
+  pick_timber: { head: '#94a3b8', edge: '#e2e8f0', shaft: '#8b5a2b', collar: '#475569' },
+  pick_tactical: { head: '#cbd5e1', edge: '#f8fafc', shaft: '#334155', collar: '#64748b' },
+  pick_plasma: { head: '#38bdf8', edge: '#bae6fd', shaft: '#1e293b', collar: '#0284c7' },
+  pick_emerald: { head: '#10b981', edge: '#a7f3d0', shaft: '#1e293b', collar: '#047857' },
+  pick_crimson: { head: '#e8365d', edge: '#fda4af', shaft: '#1f2937', collar: '#9f1239' },
+  pick_golden: { head: '#fbbf24', edge: '#fef08a', shaft: '#5c3d1e', collar: '#d97706' },
+};
+
+function drawPickaxeSpriteModel(g: CanvasRenderingContext2D, pickaxeId: string) {
+  const st = PICKAXE_STYLES[pickaxeId] || PICKAXE_STYLES.pick_tactical;
+  g.save();
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  g.lineWidth = 2.2;
+  g.strokeStyle = '#14161b';
+
+  // Handle shaft
+  g.fillStyle = st.shaft;
+  g.beginPath();
+  g.roundRect(-7, -2.1, 26, 4.2, 1.6);
+  g.fill();
+  g.stroke();
+
+  // Pommel grip cap at handle bottom
+  g.fillStyle = st.collar;
+  g.beginPath();
+  g.roundRect(-9.2, -2.8, 3.6, 5.6, 1.2);
+  g.fill();
+  g.stroke();
+
+  // Classic curved regular pickaxe head perpendicular to the handle
+  g.fillStyle = st.head;
+  g.beginPath();
+  g.moveTo(14.8, -14);
+  g.quadraticCurveTo(22.2, -5.8, 21.8, 0);
+  g.quadraticCurveTo(22.2, 5.8, 14.8, 14);
+  g.quadraticCurveTo(17.4, 6.2, 16.4, 0);
+  g.quadraticCurveTo(17.4, -6.2, 14.8, -14);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  // Metallic highlight ridge cleanly inside outer pickaxe curve
+  g.strokeStyle = st.edge;
+  g.lineWidth = 1.25;
+  g.beginPath();
+  g.moveTo(16.6, -9.8);
+  g.quadraticCurveTo(19.9, 0, 16.6, 9.8);
+  g.stroke();
+
+  // Socket collar where shaft meets pickaxe head
+  g.strokeStyle = '#14161b';
+  g.lineWidth = 2.0;
+  g.fillStyle = st.collar;
+  g.beginPath();
+  g.roundRect(14.4, -3.3, 5.4, 6.6, 1.4);
+  g.fill();
+  g.stroke();
+  g.restore();
+}
+
 function drawPlayerArms(g: CanvasRenderingContext2D, p: Player) {
   const w = WP[p.w];
   const r = p.invRarity[p.sl] || 0;
@@ -255,74 +321,16 @@ function drawPlayerArms(g: CanvasRenderingContext2D, p: Player) {
     const dir = p.hd ? 1 : -1;
     // Draw equipped Pickaxe if not bare fists (held sideways at the player's side, swinging in an arc)
     if (p.pickaxeId && p.pickaxeId !== 'pick_fists') {
-      const styleMap: Record<
-        string,
-        { head: string; edge: string; shaft: string; collar: string }
-      > = {
-        pick_timber: { head: '#94a3b8', edge: '#e2e8f0', shaft: '#8b5a2b', collar: '#475569' },
-        pick_tactical: { head: '#cbd5e1', edge: '#f8fafc', shaft: '#334155', collar: '#64748b' },
-        pick_plasma: { head: '#38bdf8', edge: '#bae6fd', shaft: '#1e293b', collar: '#0284c7' },
-        pick_emerald: { head: '#10b981', edge: '#a7f3d0', shaft: '#1e293b', collar: '#047857' },
-        pick_crimson: { head: '#e8365d', edge: '#fda4af', shaft: '#1f2937', collar: '#9f1239' },
-        pick_golden: { head: '#fbbf24', edge: '#fef08a', shaft: '#5c3d1e', collar: '#d97706' },
-      };
-      const st = styleMap[p.pickaxeId] || styleMap.pick_tactical;
-
       g.save();
-      // Position at right-side grip and angle sideways (~78 deg), sweeping across on swing
       const swingShiftX = k * 7;
       const swingShiftY = -k * 6;
-      const restAngle = Math.PI * 0.44; // sideways across/beside body, not sticking straight in front
+      const restAngle = Math.PI * 0.44;
       const swingAngle = restAngle - k * (0.95 + dir * 0.2);
       g.translate(10 + swingShiftX, 11 + swingShiftY);
       g.rotate(swingAngle);
-
-      // Handle shaft (extends sideways)
-      g.fillStyle = st.shaft;
-      g.beginPath();
-      g.roundRect(-7, -2.1, 27, 4.2, 1.5);
-      g.fill();
-      g.stroke();
-
-      // Pommel grip cap at handle bottom
-      g.fillStyle = st.collar;
-      g.beginPath();
-      g.roundRect(-9, -2.8, 3.5, 5.6, 1);
-      g.fill();
-      g.stroke();
-
-      // Classic curved regular pickaxe head perpendicular to the handle
-      g.fillStyle = st.head;
-      g.beginPath();
-      g.moveTo(15, -14.5);
-      g.quadraticCurveTo(22.5, -6, 22, 0);
-      g.quadraticCurveTo(22.5, 6, 15, 14.5);
-      g.quadraticCurveTo(17.5, 6.5, 16.5, 0);
-      g.quadraticCurveTo(17.5, -6.5, 15, -14.5);
-      g.closePath();
-      g.fill();
-      g.stroke();
-
-      // Metallic highlight ridge along outer pickaxe curve
-      g.strokeStyle = st.edge;
-      g.lineWidth = 1.4;
-      g.beginPath();
-      g.moveTo(16.2, -11.5);
-      g.quadraticCurveTo(20.6, 0, 16.2, 11.5);
-      g.stroke();
-
-      // Socket collar where shaft meets pickaxe head
-      g.strokeStyle = '#14161b';
-      g.lineWidth = 2.1;
-      g.fillStyle = st.collar;
-      g.beginPath();
-      g.roundRect(14.2, -3.5, 5.5, 7, 1.2);
-      g.fill();
-      g.stroke();
-
+      drawPickaxeSpriteModel(g, p.pickaxeId);
       g.restore();
 
-      // Two hands holding the sideways pickaxe naturally
       hand(9 + k * 7, 11 - k * 5);
       hand(11 + k * 8, 2 - k * 5);
     } else {
@@ -547,6 +555,203 @@ function drawGliderOverPlayer(g: CanvasRenderingContext2D, p: Player, alt: numbe
   g.restore();
 }
 
+export function drawGliderPreview(
+  g: CanvasRenderingContext2D,
+  color: string,
+  w: number,
+  h: number
+) {
+  const s = Math.min(w / 108, h / 64);
+  g.save();
+  g.translate(w / 2, h / 2 + 5 * s);
+  g.scale(s, s);
+  drawGliderOverPlayer(g, { a: -Math.PI / 2, col: color } as Player, 0.25);
+  g.restore();
+}
+
+export function drawCosmeticSpritePreview(
+  g: CanvasRenderingContext2D,
+  item: CosmeticItem,
+  w: number,
+  h: number
+) {
+  g.clearRect(0, 0, w, h);
+
+  if (item.category === 'glider') {
+    drawGliderPreview(g, item.color, w, h);
+    return;
+  }
+
+  if (item.category === 'pickaxe') {
+    g.save();
+    if (item.id === 'pick_fists') {
+      const s = Math.min(w / 62, h / 34);
+      g.translate(w / 2, h / 2);
+      g.scale(s, s);
+      g.lineWidth = 2.4;
+      g.strokeStyle = '#14161b';
+      g.fillStyle = '#e0ac82';
+      g.beginPath();
+      g.arc(-8, 2, 5.8, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.beginPath();
+      g.arc(8, -2, 5.8, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    } else {
+      const s = Math.min(w / 74, h / 44);
+      g.translate(w / 2 - 4.5 * s, h / 2 + 4.5 * s);
+      g.rotate(-0.62);
+      g.scale(s, s);
+      drawPickaxeSpriteModel(g, item.id);
+    }
+    g.restore();
+    return;
+  }
+
+  if (item.category === 'skin') {
+    const previewPlayer = {
+      x: 0,
+      y: 0,
+      a: -0.32,
+      w: 0,
+      sl: 0,
+      invRarity: [0],
+      pc: 0,
+      hd: 0,
+      fl: '#e0ac82',
+      skinId: item.id,
+      pickaxeId: 'pick_fists',
+      backblingId: 'bb_none',
+    } as unknown as Player;
+
+    const s = Math.min(w / 72, h / 44);
+    g.save();
+    g.translate(w / 2 - 2 * s, h / 2 + s);
+    g.scale(s, s);
+
+    // Shadow
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.beginPath();
+    g.arc(2, 4, PLAYER_RADIUS, 0, Math.PI * 2);
+    g.fill();
+
+    drawEquippedOutfit(g, previewPlayer);
+
+    g.fillStyle = previewPlayer.fl;
+    g.beginPath();
+    g.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeStyle = '#14161b';
+    g.stroke();
+
+    drawPlayerArms(g, previewPlayer);
+    drawEquippedHat(g, previewPlayer);
+    g.restore();
+    return;
+  }
+
+  if (item.category === 'backbling') {
+    const s = Math.min(w / 68, h / 40);
+    g.save();
+    g.translate(w / 2 + 4 * s, h / 2 + s);
+    g.scale(s, s);
+
+    if (item.id === 'bb_none') {
+      g.strokeStyle = 'rgba(148,163,184,0.45)';
+      g.lineWidth = 2;
+      g.setLineDash([4, 3]);
+      g.beginPath();
+      g.arc(-4, 0, PLAYER_RADIUS, 0, Math.PI * 2);
+      g.stroke();
+      g.setLineDash([]);
+      g.strokeStyle = '#e8365d';
+      g.lineWidth = 2.6;
+      g.beginPath();
+      g.moveTo(-14, 10);
+      g.lineTo(6, -10);
+      g.stroke();
+    } else {
+      const previewPlayer = {
+        x: 0,
+        y: 0,
+        a: -0.25,
+        backblingId: item.id,
+      } as unknown as Player;
+
+      // Subtle silhouette of survivor so the player sees how the back bling attaches
+      g.save();
+      g.globalAlpha = 0.25;
+      g.fillStyle = '#94a3b8';
+      g.beginPath();
+      g.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+
+      drawEquippedBackBling(g, previewPlayer);
+    }
+    g.restore();
+  }
+}
+
+export function drawFullLoadoutSpritePreview(
+  g: CanvasRenderingContext2D,
+  opts: {
+    gliderColor?: string;
+    skinColor?: string;
+    skinId: string;
+    backblingId: string;
+    pickaxeId: string;
+  },
+  w: number,
+  h: number
+) {
+  g.clearRect(0, 0, w, h);
+
+  const p = {
+    x: 0,
+    y: 0,
+    a: -0.35,
+    w: 0,
+    sl: 0,
+    invRarity: [0],
+    pc: 0,
+    hd: 0,
+    fl: opts.skinColor || '#e0ac82',
+    skinId: opts.skinId,
+    pickaxeId: opts.pickaxeId,
+    backblingId: opts.backblingId,
+  } as unknown as Player;
+
+  const scale = Math.min(w, h) / 76;
+
+  g.save();
+  g.translate(w / 2 - 7 * scale, h / 2 - 5 * scale);
+  g.scale(scale, scale);
+
+  g.fillStyle = 'rgba(0,0,0,0.32)';
+  g.beginPath();
+  g.arc(2, 4, PLAYER_RADIUS, 0, Math.PI * 2);
+  g.fill();
+
+  drawEquippedBackBling(g, p);
+  drawEquippedOutfit(g, p);
+
+  g.fillStyle = p.fl;
+  g.beginPath();
+  g.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = 3;
+  g.strokeStyle = '#14161b';
+  g.stroke();
+
+  drawPlayerArms(g, p);
+  drawEquippedHat(g, p);
+  g.restore();
+}
+
 export function renderGame(
   g: CanvasRenderingContext2D,
   engine: GameEngine,
@@ -574,6 +779,15 @@ export function renderGame(
   g.translate(W / 2 + sx, H / 2 + sy);
   g.scale(zoom, zoom);
   g.translate(-scene.camX, -scene.camY);
+
+  // Main island deep-water drop shadow
+  g.fillStyle = 'rgba(8,28,56,0.22)';
+  g.fillRect(
+    ISLAND_MARGIN - 43,
+    ISLAND_MARGIN - 41,
+    MAP_SIZE - (ISLAND_MARGIN - 55) * 2,
+    MAP_SIZE - (ISLAND_MARGIN - 55) * 2
+  );
 
   // Sandy Beach Shoreline
   g.fillStyle = '#e0cf93';
@@ -641,6 +855,117 @@ export function renderGame(
     g.restore();
   }
 
+  // Offshore Spawn Island Staging Ground
+  const si = SPAWN_ISLAND;
+  if (
+    cx + vw > si.x - 140 &&
+    cx < si.x + si.w + 200 &&
+    cy + vh > si.y - 140 &&
+    cy < si.y + si.h + 140
+  ) {
+    // Deep-water shoreline shadow
+    g.fillStyle = 'rgba(8,28,56,0.24)';
+    g.fillRect(si.x - 33, si.y - 31, si.w + 90, si.h + 90);
+
+    // Sandy beach shoreline
+    g.fillStyle = '#e0cf93';
+    g.fillRect(si.x - 45, si.y - 45, si.w + 90, si.h + 90);
+    g.strokeStyle = 'rgba(255,255,255,0.45)';
+    g.lineWidth = 5;
+    g.strokeRect(si.x - 45, si.y - 45, si.w + 90, si.h + 90);
+
+    // Wooden dock shadow + planks extending east toward the main island
+    g.save();
+    g.fillStyle = 'rgba(8,28,56,0.3)';
+    g.fillRect(si.x + si.w + 4, si.cy - 26, 98, 72);
+    g.fillStyle = '#9b6b3e';
+    g.strokeStyle = '#2d1c0d';
+    g.lineWidth = 2.5;
+    g.fillRect(si.x + si.w - 4, si.cy - 36, 98, 72);
+    g.strokeRect(si.x + si.w - 4, si.cy - 36, 98, 72);
+    g.strokeStyle = 'rgba(0,0,0,0.22)';
+    g.lineWidth = 1.5;
+    for (let px = si.x + si.w + 12; px < si.x + si.w + 90; px += 16) {
+      g.beginPath();
+      g.moveTo(px, si.cy - 36);
+      g.lineTo(px, si.cy + 36);
+      g.stroke();
+    }
+    g.restore();
+
+    // Lush grass surface
+    g.fillStyle = '#5da142';
+    g.fillRect(si.x, si.y, si.w, si.h);
+
+    // Subtle tile grid matching main island
+    g.strokeStyle = 'rgba(0,0,0,0.065)';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    for (let i = si.x + 120; i < si.x + si.w; i += 120) {
+      g.moveTo(i, si.y);
+      g.lineTo(i, si.y + si.h);
+    }
+    for (let j = si.y + 120; j < si.y + si.h; j += 120) {
+      g.moveTo(si.x, j);
+      g.lineTo(si.x + si.w, j);
+    }
+    g.stroke();
+
+    // Paved cross-walkways connecting Helipad to Weapon Rack (north) and Dock (east)
+    g.save();
+    g.fillStyle = '#535a66';
+    g.fillRect(si.cx - 29, si.cy - 245, 58, 245);
+    g.fillRect(si.cx, si.cy - 29, si.x + si.w - si.cx, 58);
+
+    // Weapon Rack Staging Pad
+    g.fillStyle = 'rgba(30, 41, 59, 0.36)';
+    g.strokeStyle = 'rgba(229, 193, 88, 0.48)';
+    g.lineWidth = 2;
+    g.setLineDash([10, 8]);
+    g.fillRect(si.cx - 215, si.cy - 320, 430, 120);
+    g.strokeRect(si.cx - 215, si.cy - 320, 430, 120);
+    g.setLineDash([]);
+    g.restore();
+
+    // Paved Drop Plane Boarding Apron / Helipad with subtle edge shadow
+    g.save();
+    g.fillStyle = 'rgba(0,0,0,0.16)';
+    g.fillRect(si.cx - 99, si.cy - 98, 210, 210);
+    g.fillStyle = '#475569';
+    g.strokeStyle = '#1e293b';
+    g.lineWidth = 3;
+    g.fillRect(si.cx - 105, si.cy - 105, 210, 210);
+    g.strokeRect(si.cx - 105, si.cy - 105, 210, 210);
+
+    g.setLineDash([14, 12]);
+    g.strokeStyle = '#e5c158';
+    g.lineWidth = 2.5;
+    g.strokeRect(si.cx - 93, si.cy - 93, 186, 186);
+    g.setLineDash([]);
+
+    g.strokeStyle = 'rgba(255,255,255,0.42)';
+    g.lineWidth = 4;
+    g.beginPath();
+    g.arc(si.cx, si.cy, 58, 0, Math.PI * 2);
+    g.stroke();
+
+    g.fillStyle = 'rgba(255,255,255,0.42)';
+    g.font = '800 54px "Barlow Condensed", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('H', si.cx, si.cy + 2);
+    g.restore();
+
+    // Ground stencils
+    g.save();
+    g.font = '800 22px "Barlow Condensed", sans-serif';
+    g.textAlign = 'center';
+    g.fillStyle = 'rgba(255,255,255,0.3)';
+    g.fillText('SPAWN ISLAND', si.cx, si.cy + 148);
+    g.fillText('WEAPON RACK', si.cx, si.cy - 336);
+    g.restore();
+  }
+
   // POI Ground Markers
   g.save();
   g.font = '800 24px "Barlow Condensed", sans-serif';
@@ -653,9 +978,12 @@ export function renderGame(
   }
   g.restore();
 
-  // Building Wooden Floors
+  // Building Ground Cast Shadows & Wooden Floors
   for (const f of scene.floors) {
-    if (f.x > cx + vw || f.x + f.w < cx || f.y > cy + vh || f.y + f.h < cy) continue;
+    if (f.x > cx + vw + 24 || f.x + f.w < cx - 24 || f.y > cy + vh + 24 || f.y + f.h < cy - 24)
+      continue;
+    g.fillStyle = 'rgba(0,0,0,0.24)';
+    g.fillRect(f.x + 12, f.y + 16, f.w, f.h);
     g.fillStyle = '#a88459';
     g.fillRect(f.x, f.y, f.w, f.h);
     g.strokeStyle = 'rgba(0,0,0,0.12)';
@@ -734,6 +1062,8 @@ export function renderGame(
     if (c.x < cx - 50 || c.x > cx + vw + 50 || c.y < cy - 50 || c.y > cy + vh + 50) continue;
     g.save();
     g.translate(c.x, c.y);
+    g.fillStyle = 'rgba(0,0,0,0.26)';
+    g.fillRect(-11, -6, 28, 20);
     if (c.opened) {
       g.fillStyle = '#5c4632';
       g.fillRect(-14, -10, 28, 20);
@@ -766,6 +1096,10 @@ export function renderGame(
       const aInfo = AMMO_INFO[l.ammoType || 'medium'];
       g.save();
       g.translate(l.x, l.y);
+      g.fillStyle = 'rgba(0,0,0,0.26)';
+      g.beginPath();
+      g.roundRect(-7.5, -4, 20, 16, 3.5);
+      g.fill();
       g.fillStyle = 'rgba(15, 23, 42, 0.85)';
       g.strokeStyle = aInfo.color;
       g.lineWidth = 2;
@@ -785,6 +1119,11 @@ export function renderGame(
       g.save();
       g.translate(l.x, l.y);
 
+      g.fillStyle = 'rgba(0,0,0,0.22)';
+      g.beginPath();
+      g.arc(2.5, 4, 20, 0, Math.PI * 2);
+      g.fill();
+
       g.fillStyle = rInfo.bg;
       g.beginPath();
       g.arc(0, 0, 21, 0, Math.PI * 2);
@@ -798,6 +1137,10 @@ export function renderGame(
       drawWeaponSprite(g, l.w, l.r);
       g.restore();
     } else {
+      g.fillStyle = 'rgba(0,0,0,0.24)';
+      g.beginPath();
+      g.arc(l.x + 2.5, l.y + 3.5, 8, 0, Math.PI * 2);
+      g.fill();
       g.fillStyle = l.t === 'h' ? '#ff5c6c' : '#38bdf8';
       g.beginPath();
       g.arc(l.x, l.y, 8, 0, Math.PI * 2);
@@ -821,10 +1164,16 @@ export function renderGame(
     if (o.kind === 'tree') continue;
     if (o.x < cx - 60 || o.x > cx + vw + 60 || o.y < cy - 60 || o.y > cy + vh + 60) continue;
 
-    g.fillStyle = 'rgba(0,0,0,0.22)';
-    g.beginPath();
-    g.arc(o.x + 3, o.y + 4, o.r, 0, Math.PI * 2);
-    g.fill();
+    if (o.kind === 'crate') {
+      const s = o.r * 1.75;
+      g.fillStyle = 'rgba(0,0,0,0.26)';
+      g.fillRect(o.x - s / 2 + 5, o.y - s / 2 + 6, s, s);
+    } else {
+      g.fillStyle = 'rgba(0,0,0,0.26)';
+      g.beginPath();
+      g.arc(o.x + 5, o.y + 6, o.r, 0, Math.PI * 2);
+      g.fill();
+    }
 
     if (o.kind === 'rock') {
       g.fillStyle = o.hitFlash > 0 ? '#ffffff' : '#7b828e';
@@ -970,9 +1319,9 @@ export function renderGame(
     if (!p.alive || p.inPlane || p.dropTime > 0) continue;
     if (p.x < cx - 80 || p.x > cx + vw + 80 || p.y < cy - 80 || p.y > cy + vh + 80) continue;
 
-    g.fillStyle = 'rgba(0,0,0,0.28)';
+    g.fillStyle = 'rgba(0,0,0,0.32)';
     g.beginPath();
-    g.arc(p.x + 2, p.y + 4, PLAYER_RADIUS, 0, Math.PI * 2);
+    g.arc(p.x + 4, p.y + 6, PLAYER_RADIUS, 0, Math.PI * 2);
     g.fill();
 
     drawEquippedBackBling(g, p);
@@ -1055,12 +1404,15 @@ export function renderGame(
     g.save();
     g.globalAlpha = f.roofAlpha;
 
-    // Slight overhang pitched roof
+    // Slight overhang pitched roof + cast overhang shadow
     const pad = 6;
     const rx = f.x - pad;
     const ry = f.y - pad;
     const rw = f.w + pad * 2;
     const rh = f.h + pad * 2;
+
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    g.fillRect(rx + 8, ry + 10, rw, rh);
 
     g.fillStyle = f.roofColor;
     g.fillRect(rx, ry, rw, rh);
@@ -1110,9 +1462,9 @@ export function renderGame(
     g.save();
     g.globalAlpha = nearPlayer ? 0.55 : 0.96;
 
-    g.fillStyle = 'rgba(0,0,0,0.22)';
+    g.fillStyle = 'rgba(0,0,0,0.26)';
     g.beginPath();
-    g.arc(o.x + 5, o.y + 6, o.r, 0, Math.PI * 2);
+    g.arc(o.x + 11, o.y + 14, o.r, 0, Math.PI * 2);
     g.fill();
 
     g.fillStyle = o.hitFlash > 0 ? '#ffffff' : '#2e6f38';
@@ -1241,54 +1593,56 @@ export function renderGame(
   }
   g.globalAlpha = 1;
 
-  // Next Safe Zone dashed ring
-  if (scene.storm.set && scene.storm.i < STORM_RADII.length - 1) {
-    g.save();
-    g.setLineDash([12, 10]);
-    g.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-    g.lineWidth = 2.5;
-    g.beginPath();
-    g.arc(
-      scene.storm.tx,
-      scene.storm.ty,
-      STORM_RADII[scene.storm.i + 1],
-      0,
-      Math.PI * 2
-    );
-    g.stroke();
-    g.restore();
-  }
-
-  // Safe Zone Directional Guide Line
-  if (scene.me && scene.me.alive && !scene.me.inPlane) {
-    const zx = scene.storm.set ? scene.storm.tx : scene.storm.x;
-    const zy = scene.storm.set ? scene.storm.ty : scene.storm.y;
-    const zr = scene.storm.set ? STORM_RADII[scene.storm.i + 1] : scene.storm.r;
-    if (Math.hypot(scene.me.x - zx, scene.me.y - zy) > zr) {
+  if (!scene.spawnIslandActive) {
+    // Next Safe Zone dashed ring
+    if (scene.storm.set && scene.storm.i < STORM_RADII.length - 1) {
       g.save();
-      g.setLineDash([8, 8]);
-      g.strokeStyle = 'rgba(255,255,255,0.55)';
-      g.lineWidth = 2;
+      g.setLineDash([12, 10]);
+      g.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      g.lineWidth = 2.5;
       g.beginPath();
-      g.moveTo(scene.me.x, scene.me.y);
-      g.lineTo(zx, zy);
+      g.arc(
+        scene.storm.tx,
+        scene.storm.ty,
+        STORM_RADII[scene.storm.i + 1],
+        0,
+        Math.PI * 2
+      );
       g.stroke();
       g.restore();
     }
+
+    // Safe Zone Directional Guide Line
+    if (scene.me && scene.me.alive && !scene.me.inPlane) {
+      const zx = scene.storm.set ? scene.storm.tx : scene.storm.x;
+      const zy = scene.storm.set ? scene.storm.ty : scene.storm.y;
+      const zr = scene.storm.set ? STORM_RADII[scene.storm.i + 1] : scene.storm.r;
+      if (Math.hypot(scene.me.x - zx, scene.me.y - zy) > zr) {
+        g.save();
+        g.setLineDash([8, 8]);
+        g.strokeStyle = 'rgba(255,255,255,0.55)';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(scene.me.x, scene.me.y);
+        g.lineTo(zx, zy);
+        g.stroke();
+        g.restore();
+      }
+    }
+
+    // Storm Gas
+    g.fillStyle = 'rgba(138, 43, 226, 0.38)';
+    g.beginPath();
+    g.rect(-3000, -3000, MAP_SIZE + 6000, MAP_SIZE + 6000);
+    g.arc(scene.storm.x, scene.storm.y, scene.storm.r, 0, Math.PI * 2, true);
+    g.fill('evenodd');
+
+    g.strokeStyle = '#c084fc';
+    g.lineWidth = 4.5;
+    g.beginPath();
+    g.arc(scene.storm.x, scene.storm.y, scene.storm.r, 0, Math.PI * 2);
+    g.stroke();
   }
-
-  // Storm Gas
-  g.fillStyle = 'rgba(138, 43, 226, 0.38)';
-  g.beginPath();
-  g.rect(-3000, -3000, MAP_SIZE + 6000, MAP_SIZE + 6000);
-  g.arc(scene.storm.x, scene.storm.y, scene.storm.r, 0, Math.PI * 2, true);
-  g.fill('evenodd');
-
-  g.strokeStyle = '#c084fc';
-  g.lineWidth = 4.5;
-  g.beginPath();
-  g.arc(scene.storm.x, scene.storm.y, scene.storm.r, 0, Math.PI * 2);
-  g.stroke();
 
   g.restore();
 

@@ -2,6 +2,7 @@ export type GameScreen = 'TITLE_MENU' | 'PLAYING' | 'DEATH_CAM' | 'RESULTS' | 'R
 
 export type TitleTab =
   | 'play'
+  | 'battlepass'
   | 'locker'
   | 'shop'
   | 'stats'
@@ -122,6 +123,7 @@ export interface Player {
   targetChest?: Chest | null;
   kvx?: number;
   kvy?: number;
+  m12?: number;
   m8?: number;
   m4?: number;
   m2?: number;
@@ -294,6 +296,8 @@ export interface UserStats {
 export interface UserProfile {
   tagId: string;
   coins: number;
+  gems: number;
+  nameChangesUsed: number;
   xp: number;
   hype: number;
   eq: number;
@@ -442,6 +446,11 @@ export interface HudSnapshot {
     countdown: number;
     humanCount: number;
   } | null;
+  spawnIsland: {
+    active: boolean;
+    countdown: number;
+    canSkip: boolean;
+  };
   minimap: {
     x: number;
     y: number;

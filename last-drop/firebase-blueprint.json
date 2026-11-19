@@ -29,6 +29,14 @@
           "type": "number",
           "description": "Current shop coin balance."
         },
+        "gems": {
+          "type": "number",
+          "description": "Current shop gem balance (premium second currency)."
+        },
+        "nameChangesUsed": {
+          "type": "number",
+          "description": "Number of username changes used (first change is free, subsequent changes cost 1000 gems)."
+        },
         "xp": {
           "type": "number",
           "description": "Total accumulated account XP."
@@ -77,6 +85,8 @@
         "displayName",
         "tagId",
         "coins",
+        "gems",
+        "nameChangesUsed",
         "xp",
         "hype",
         "eq",

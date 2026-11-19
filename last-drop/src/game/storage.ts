@@ -33,6 +33,8 @@ export function createEmptyProfile(takenTags?: Set<string>): UserProfile {
   return {
     tagId: generateRandomTagId(takenTags),
     coins: 250,
+    gems: 0,
+    nameChangesUsed: 0,
     xp: 0,
     hype: 0,
     eq: -1,
@@ -94,6 +96,8 @@ export function getActiveProfile(db: GameDB, guestProfile: UserProfile): UserPro
     }
     if (!u.sk) u.sk = [];
     if (u.eq === undefined) u.eq = -1;
+    if (u.gems === undefined) u.gems = 0;
+    if (u.nameChangesUsed === undefined) u.nameChangesUsed = 0;
     if (u.xp === undefined) u.xp = 0;
     if (u.hype === undefined) u.hype = 0;
     if (!u.ownedCosmetics) u.ownedCosmetics = [...DEFAULT_OWNED];
@@ -104,6 +108,8 @@ export function getActiveProfile(db: GameDB, guestProfile: UserProfile): UserPro
   if (!guestProfile.tagId || !/^#[0-9]{4}$/.test(guestProfile.tagId)) {
     guestProfile.tagId = generateRandomTagId();
   }
+  if (guestProfile.gems === undefined) guestProfile.gems = 0;
+  if (guestProfile.nameChangesUsed === undefined) guestProfile.nameChangesUsed = 0;
   return guestProfile;
 }
 

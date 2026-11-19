@@ -9,10 +9,11 @@ import {
   isStackable,
   MAP_SIZE,
   RARITY_TIERS,
+  SPAWN_ISLAND,
   WP,
 } from '../game/constants';
 import { HudSnapshot, Keybinds } from '../game/types';
-import { WeaponIcon } from './WeaponIcon';
+import { AliveSprite, SkullSprite, WeaponIcon } from './WeaponIcon';
 
 interface GameHudProps {
   hud: HudSnapshot;
@@ -23,6 +24,7 @@ interface GameHudProps {
   onToggleMute: () => void;
   onLeaveLobby: () => void;
   onJumpPlane: () => void;
+  onSkipCountdown: () => void;
   onSelectSlot: (idx: number) => void;
   onSwapSlots: (fromIdx: number, toIdx: number) => void;
   onDropSlot: (slotIdx: number) => void;
@@ -38,8 +40,106 @@ function MinimapSvg({
   size: number;
   showLabels: boolean;
 }) {
-  const s = size / MAP_SIZE;
   const mm = hud.minimap;
+
+  if (hud.spawnIsland?.active) {
+    const pad = 160;
+    const span = Math.max(SPAWN_ISLAND.w, SPAWN_ISLAND.h) + pad * 2;
+    const ox = SPAWN_ISLAND.cx - span / 2;
+    const oy = SPAWN_ISLAND.cy - span / 2;
+    const s = size / span;
+
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        aria-label="Spawn Island Tactical Map"
+      >
+        <rect width={size} height={size} fill="#1b5d91" />
+        <rect
+          x={(SPAWN_ISLAND.x - 45 - ox) * s}
+          y={(SPAWN_ISLAND.y - 45 - oy) * s}
+          width={(SPAWN_ISLAND.w + 90) * s}
+          height={(SPAWN_ISLAND.h + 90) * s}
+          fill="#d9c68a"
+        />
+        <rect
+          x={(SPAWN_ISLAND.x + SPAWN_ISLAND.w - 4 - ox) * s}
+          y={(SPAWN_ISLAND.cy - 36 - oy) * s}
+          width={98 * s}
+          height={72 * s}
+          fill="#9b6b3e"
+        />
+        <rect
+          x={(SPAWN_ISLAND.x - ox) * s}
+          y={(SPAWN_ISLAND.y - oy) * s}
+          width={SPAWN_ISLAND.w * s}
+          height={SPAWN_ISLAND.h * s}
+          fill="#478236"
+        />
+        <rect
+          x={(SPAWN_ISLAND.cx - 29 - ox) * s}
+          y={(SPAWN_ISLAND.cy - 285 - oy) * s}
+          width={58 * s}
+          height={285 * s}
+          fill="#59616e"
+        />
+        <rect
+          x={(SPAWN_ISLAND.cx - ox) * s}
+          y={(SPAWN_ISLAND.cy - 29 - oy) * s}
+          width={(SPAWN_ISLAND.x + SPAWN_ISLAND.w - SPAWN_ISLAND.cx) * s}
+          height={58 * s}
+          fill="#59616e"
+        />
+        <rect
+          x={(SPAWN_ISLAND.cx - 105 - ox) * s}
+          y={(SPAWN_ISLAND.cy - 105 - oy) * s}
+          width={210 * s}
+          height={210 * s}
+          fill="#475569"
+        />
+        {mm.buildings
+          .filter((b) => b.x < 0)
+          .map((b, idx) => (
+            <rect
+              key={idx}
+              x={(b.x - ox) * s}
+              y={(b.y - oy) * s}
+              width={Math.max(2, b.w * s)}
+              height={Math.max(2, b.h * s)}
+              fill="#b58d5e"
+            />
+          ))}
+        {showLabels && (
+          <text
+            x={(SPAWN_ISLAND.cx - ox) * s}
+            y={(SPAWN_ISLAND.cy + 150 - oy) * s}
+            textAnchor="middle"
+            fill="#ffffff"
+            stroke="#0f172a"
+            strokeWidth={2.5}
+            paintOrder="stroke"
+            fontSize={13}
+            fontWeight={800}
+            fontFamily="'Barlow Condensed', sans-serif"
+          >
+            SPAWN ISLAND
+          </text>
+        )}
+        <circle
+          cx={(mm.x - ox) * s}
+          cy={(mm.y - oy) * s}
+          r={showLabels ? 6 : 4}
+          fill="#ffffff"
+          stroke="#111"
+          strokeWidth={1.5}
+        />
+      </svg>
+    );
+  }
+
+  const s = size / MAP_SIZE;
 
   return (
     <svg
@@ -77,16 +177,18 @@ function MinimapSvg({
         />
       ))}
 
-      {mm.buildings.map((b, idx) => (
-        <rect
-          key={idx}
-          x={b.x * s}
-          y={b.y * s}
-          width={Math.max(2, b.w * s)}
-          height={Math.max(2, b.h * s)}
-          fill="#b58d5e"
-        />
-      ))}
+      {mm.buildings
+        .filter((b) => b.x >= 0)
+        .map((b, idx) => (
+          <rect
+            key={idx}
+            x={b.x * s}
+            y={b.y * s}
+            width={Math.max(2, b.w * s)}
+            height={Math.max(2, b.h * s)}
+            fill="#b58d5e"
+          />
+        ))}
 
       {showLabels &&
         mm.pois.map((poi) => (
@@ -195,6 +297,7 @@ export function GameHud({
   onToggleMute,
   onLeaveLobby,
   onJumpPlane,
+  onSkipCountdown,
   onSelectSlot,
   onSwapSlots,
   onDropSlot,
@@ -275,14 +378,20 @@ export function GameHud({
     <div className="fixed inset-0 pointer-events-none z-10 select-none">
       {/* Top-Left: Storm Timer & Elimination Feed */}
       <div className="absolute top-3 left-3 flex flex-col gap-2">
-        <div className="bg-[#0e1526]/88 border border-white/14 rounded-xl px-3.5 py-2 flex items-center gap-3">
-          <div className="text-xs font-bold text-[#d8b4fe] font-mono-num">
-            {hud.stormFinal
-              ? 'FINAL CIRCLE'
-              : hud.stormShrinking
-                ? 'GAS CLOSING'
-                : `GAS IN ${hud.stormTimer}s`}
-          </div>
+        <div className="bg-[#162033]/95 border-2 border-[#090e17] shadow-[0_3px_0_#090e17] rounded-lg px-3.5 py-2 flex items-center gap-3">
+          {hud.spawnIsland?.active ? (
+            <div className="text-xs font-bold text-[#7dd3fc] font-mono-num">
+              SPAWN ISLAND · WARMUP
+            </div>
+          ) : (
+            <div className="text-xs font-bold text-[#d8b4fe] font-mono-num">
+              {hud.stormFinal
+                ? 'FINAL CIRCLE'
+                : hud.stormShrinking
+                  ? 'GAS CLOSING'
+                  : `GAS IN ${hud.stormTimer}s`}
+            </div>
+          )}
           {hud.inStorm && (
             <span className="text-xs font-bold text-[#ff5c6c]">IN GAS</span>
           )}
@@ -303,29 +412,25 @@ export function GameHud({
         )}
       </div>
 
-      {/* Top-Right: Minimap, Alive/Kills, Mute, and Leave to Lobby */}
+      {/* Top-Right: Alive/Points + Controls, Minimap, and Kills under Minimap */}
       <div className="absolute top-3 right-3 flex flex-col items-end gap-2">
         <div className="flex items-start gap-2">
-          <div className="bg-[#0e1526]/88 border border-white/14 rounded-xl px-3.5 py-2 flex items-center gap-4">
-            <div className="text-center">
-              <div className="text-[10px] font-bold text-[#94a3b8]">ALIVE</div>
-              <div className="font-mono-num text-lg font-bold leading-tight text-white">
-                {hud.aliveCount}
-              </div>
-            </div>
-            <div className="w-px h-6 bg-white/12" />
-            <div className="text-center">
-              <div className="text-[10px] font-bold text-[#94a3b8]">KILLS</div>
-              <div className="font-mono-num text-lg font-bold leading-tight text-white">
-                {hud.kills}
+          <div className="bg-[#162033]/95 border-2 border-[#090e17] shadow-[0_3px_0_#090e17] rounded-lg px-3 py-1.5 flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <AliveSprite className="w-5 h-5 shrink-0" />
+              <div>
+                <div className="text-[10px] font-bold leading-none text-[#94a3b8]">ALIVE</div>
+                <div className="font-mono-num text-lg font-extrabold leading-tight text-white">
+                  {hud.aliveCount}
+                </div>
               </div>
             </div>
             {hud.isArena && (
               <>
-                <div className="w-px h-6 bg-white/12" />
+                <div className="w-0.5 h-6 bg-[#090e17]" />
                 <div className="text-center">
-                  <div className="text-[10px] font-bold text-[#ffd24d]">PTS</div>
-                  <div className="font-mono-num text-lg font-bold leading-tight text-[#ffd24d]">
+                  <div className="text-[10px] font-bold leading-none text-[#ffd24d]">PTS</div>
+                  <div className="font-mono-num text-lg font-extrabold leading-tight text-[#ffd24d]">
                     {hud.points}
                   </div>
                 </div>
@@ -338,7 +443,7 @@ export function GameHud({
               type="button"
               onClick={onToggleMap}
               aria-label="Toggle full map"
-              className="w-10 h-10 rounded-lg bg-[#0e1526]/88 border border-white/14 text-[#d5dae3] hover:text-white hover:border-white/30 flex items-center justify-center transition-colors cursor-pointer"
+              className="w-10 h-10 rounded-lg bg-[#162033]/95 border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-[#d5dae3] hover:text-white hover:bg-[#1f2e48] flex items-center justify-center transition-colors cursor-pointer"
             >
               <MapIcon className="w-4 h-4" />
             </button>
@@ -346,14 +451,14 @@ export function GameHud({
               type="button"
               onClick={onToggleMute}
               aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-              className="w-10 h-10 rounded-lg bg-[#0e1526]/88 border border-white/14 text-[#d5dae3] hover:text-white hover:border-white/30 flex items-center justify-center transition-colors cursor-pointer"
+              className="w-10 h-10 rounded-lg bg-[#162033]/95 border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-[#d5dae3] hover:text-white hover:bg-[#1f2e48] flex items-center justify-center transition-colors cursor-pointer"
             >
               {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <button
               type="button"
               onClick={onLeaveLobby}
-              className="h-10 px-3 rounded-lg bg-[#0e1526]/88 border border-white/14 text-xs font-bold text-[#f87171] hover:text-white hover:bg-[#e8365d] hover:border-[#e8365d] flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+              className="h-10 px-3 rounded-lg bg-[#162033]/95 border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-xs font-bold text-[#f87171] hover:text-white hover:bg-[#dc2626] flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Leave to Lobby</span>
@@ -361,39 +466,86 @@ export function GameHud({
           </div>
         </div>
 
+        {/* Minimap */}
         <button
           type="button"
           onClick={onToggleMap}
-          className="relative bg-[#0e1526]/90 border-2 border-white/20 rounded-xl overflow-hidden pointer-events-auto cursor-pointer hover:border-white/40 transition-colors"
+          className="relative bg-[#162033] border-[3px] border-[#090e17] shadow-[0_3px_0_#090e17] rounded-lg overflow-hidden pointer-events-auto cursor-pointer hover:brightness-110 transition-all"
           style={{ width: 146, height: 146 }}
           title={`Toggle full map (${(keybinds.map || 'm').toUpperCase()})`}
         >
-          <MinimapSvg hud={hud} size={142} showLabels={false} />
-          <span className="absolute bottom-1 right-1.5 font-mono-num text-[10px] font-bold text-white/85 drop-shadow">
+          <MinimapSvg hud={hud} size={140} showLabels={false} />
+          <span className="absolute bottom-1 right-1.5 font-mono-num text-[10px] font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)]">
             [{(keybinds.map || 'm').toUpperCase()}]
           </span>
         </button>
+
+        {/* Kills Directly Under Minimap with Skull Sprite */}
+        <div
+          className="bg-[#162033]/95 border-2 border-[#090e17] shadow-[0_3px_0_#090e17] rounded-lg px-3 py-1.5 flex items-center justify-between"
+          style={{ width: 146 }}
+        >
+          <div className="flex items-center gap-2">
+            <SkullSprite className="w-5 h-5 shrink-0" />
+            <span className="text-[11px] font-extrabold tracking-wider text-[#cbd5e1]">
+              KILLS
+            </span>
+          </div>
+          <span className="font-mono-num text-lg font-extrabold leading-none text-white">
+            {hud.kills}
+          </span>
+        </div>
       </div>
 
-      {/* Top-Center: Online Staging / Connection Banner */}
-      {hud.onlineStatus && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[#0e1526]/92 border border-[#38bdf8]/40 rounded-xl px-4 py-1.5 text-center shadow">
-          {!hud.onlineStatus.connected ? (
+      {/* Top-Center: Spawn Island Countdown + Skip to 3s / Online Match Banner */}
+      {(hud.spawnIsland?.active || hud.onlineStatus) && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[#0e1526]/94 border border-[#38bdf8]/35 rounded-xl px-4 py-2 shadow-lg pointer-events-auto">
+          {hud.onlineStatus && !hud.onlineStatus.connected ? (
             <div className="text-xs font-bold text-[#fbbf24]">
               Connecting to online match server...
             </div>
-          ) : hud.onlineStatus.phase === 'COUNTDOWN' ? (
-            <div className="text-xs font-bold text-white">
-              ONLINE LOBBY · Boarding Drop Plane in{' '}
-              <span className="font-mono-num text-[#38bdf8]">{hud.onlineStatus.countdown}s</span>
-              <span className="text-[#94a3b8]"> · {hud.onlineStatus.humanCount} Real Players</span>
+          ) : hud.spawnIsland?.active ? (
+            <div className="flex items-center gap-4">
+              <div>
+                <div className="text-xs font-bold text-white whitespace-nowrap">
+                  SPAWN ISLAND · Drop Plane in{' '}
+                  <span className="font-mono-num text-[#38bdf8] text-sm">
+                    {hud.spawnIsland.countdown}s
+                  </span>
+                  {hud.onlineStatus && (
+                    <span className="text-[#94a3b8]">
+                      {' '}
+                      · {hud.onlineStatus.humanCount}{' '}
+                      {hud.onlineStatus.humanCount === 1 ? 'Real Player' : 'Real Players'}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-[#94a3b8]">
+                  Warm up on the island before takeoff
+                </div>
+              </div>
+              {hud.spawnIsland.canSkip ? (
+                <button
+                  type="button"
+                  onClick={onSkipCountdown}
+                  className="px-3.5 py-2 rounded-lg bg-[#fbbf24] hover:bg-[#fcd34d] text-[#0f172a] text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                >
+                  Skip to 3s
+                </button>
+              ) : (
+                <span className="text-xs font-bold text-[#fbbf24] whitespace-nowrap shrink-0">
+                  Boarding soon...
+                </span>
+              )}
             </div>
           ) : (
-            <div className="text-xs font-bold text-[#86efac]">
-              ONLINE MATCH ·{' '}
-              <span className="font-mono-num text-white">{hud.onlineStatus.humanCount}</span> Real
-              {hud.onlineStatus.humanCount === 1 ? ' Player' : ' Players'}
-            </div>
+            hud.onlineStatus && (
+              <div className="text-xs font-bold text-[#86efac]">
+                ONLINE MATCH ·{' '}
+                <span className="font-mono-num text-white">{hud.onlineStatus.humanCount}</span> Real
+                {hud.onlineStatus.humanCount === 1 ? ' Player' : ' Players'}
+              </div>
+            )
           )}
         </div>
       )}
@@ -535,11 +687,11 @@ export function GameHud({
 
       {/* Bottom-Left: Shield Bar above Health Bar (+ Stamina) */}
       {hud.playerAlive && (
-        <div className="absolute bottom-4 left-4 w-[280px] bg-[#0e1526]/90 border border-white/14 rounded-xl p-2.5 flex flex-col gap-1.5">
+        <div className="absolute bottom-4 left-4 w-[280px] bg-[#162033]/95 border-2 border-[#090e17] shadow-[0_3px_0_#090e17] rounded-lg p-2.5 flex flex-col gap-1.5">
           {/* Shield Bar (above Health) */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-[#7dd3fc] w-7">SHD</span>
-            <div className="flex-1 h-2.5 bg-black/55 rounded overflow-hidden">
+            <span className="text-[10px] font-extrabold text-[#7dd3fc] w-7">SHD</span>
+            <div className="flex-1 h-2.5 bg-[#090e17] rounded overflow-hidden">
               <div
                 className="h-full bg-[#38bdf8] transition-[width] duration-75"
                 style={{ width: `${hud.sh}%` }}
@@ -552,10 +704,10 @@ export function GameHud({
 
           {/* Health Bar */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-[#86efac] w-7">HP</span>
-            <div className="flex-1 h-3.5 bg-black/55 rounded overflow-hidden">
+            <span className="text-[10px] font-extrabold text-[#86efac] w-7">HP</span>
+            <div className="flex-1 h-3.5 bg-[#090e17] rounded overflow-hidden">
               <div
-                className="h-full bg-[#4ade80] transition-[width] duration-75"
+                className="h-full bg-[#27c24c] transition-[width] duration-75"
                 style={{ width: `${hud.hp}%` }}
               />
             </div>
@@ -565,8 +717,8 @@ export function GameHud({
           </div>
 
           {/* Stamina Strip */}
-          <div className="h-1 bg-black/45 rounded overflow-hidden mt-0.5">
-            <div className="h-full bg-white/75" style={{ width: `${hud.st}%` }} />
+          <div className="h-1 bg-[#090e17] rounded overflow-hidden mt-0.5">
+            <div className="h-full bg-white/80" style={{ width: `${hud.st}%` }} />
           </div>
         </div>
       )}

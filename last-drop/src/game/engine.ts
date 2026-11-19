@@ -17,6 +17,9 @@ import {
   RARITY_TIERS,
   ROOF_COLORS,
   SKIN_TONES,
+  SPAWN_COUNTDOWN_SEC,
+  SPAWN_ISLAND,
+  SPAWN_SKIP_TO_SEC,
   STORM_RADII,
   TOTAL_PLAYERS,
   WP,
@@ -123,6 +126,7 @@ export interface RenderScene {
   hitmarker: number;
   paused: boolean;
   ambient: boolean;
+  spawnIslandActive: boolean;
   mouseX: number;
   mouseY: number;
 }
@@ -191,6 +195,8 @@ export class GameEngine {
   public hitmarker = 0;
   public cameraZoom = 1;
   public isArena = false;
+  public matchPhase: 'SPAWN_ISLAND' | 'PLANE' | 'ACTIVE' = 'ACTIVE';
+  public spawnCountdown = 0;
 
   public keys: Record<string, boolean> = {};
   public mouseX = 640;
@@ -210,6 +216,9 @@ export class GameEngine {
   private emoteIdx = 0;
   private ws: WebSocket | null = null;
   private myOnlineId: number | null = null;
+  private pendingBotSpawns = 0;
+  private botSpawnTimer = 0;
+  private nextBotIdx = 0;
 
   public deathCamPlaying = false;
   private deathCamBuffer: DeathCamFrame[] = [];
@@ -242,6 +251,11 @@ export class GameEngine {
     this.hitstop = 0;
     this.hitmarker = 0;
     this.cameraZoom = 1;
+    this.matchPhase = 'ACTIVE';
+    this.spawnCountdown = 0;
+    this.pendingBotSpawns = 0;
+    this.botSpawnTimer = 0;
+    this.nextBotIdx = 0;
     this.resultCache = null;
     this.plane.active = false;
 
@@ -292,6 +306,8 @@ export class GameEngine {
     this.hitstop = 0;
     this.hitmarker = 0;
     this.cameraZoom = 1;
+    this.matchPhase = 'ACTIVE';
+    this.spawnCountdown = 0;
     this.resultCache = null;
     this.keys = {};
     this.mouseDown = false;
@@ -312,7 +328,7 @@ export class GameEngine {
     this.onlineStatus = {
       connected: false,
       phase: 'COUNTDOWN',
-      countdown: 4,
+      countdown: SPAWN_COUNTDOWN_SEC,
       humanCount: 1,
     };
 
@@ -320,12 +336,14 @@ export class GameEngine {
     const eq = profile.equipped;
     const skinItem = COSMETIC_CATALOG.find((c) => c.id === eq?.skin);
     const gliderItem = COSMETIC_CATALOG.find((c) => c.id === eq?.glider);
-    const mePlaceholder = this.createPlayer(playerName || 'You', false, 3, true);
+    const mePlaceholder = this.createPlayer(playerName || 'You', false, 3, false);
     if (skinItem) mePlaceholder.fl = skinItem.color;
     if (gliderItem) mePlaceholder.col = gliderItem.color;
     mePlaceholder.skinId = eq?.skin || 'skin_classic';
     mePlaceholder.pickaxeId = eq?.pickaxe || 'pick_fists';
     mePlaceholder.backblingId = eq?.backbling || 'bb_none';
+    mePlaceholder.x = SPAWN_ISLAND.cx;
+    mePlaceholder.y = SPAWN_ISLAND.cy;
     this.me = mePlaceholder;
     this.players = [mePlaceholder];
 
@@ -399,11 +417,14 @@ export class GameEngine {
     this.hitstop = 0;
     this.hitmarker = 0;
     this.cameraZoom = 1;
+    this.matchPhase = 'SPAWN_ISLAND';
+    this.spawnCountdown = SPAWN_COUNTDOWN_SEC;
     this.resultCache = null;
     this.keys = {};
     this.mouseDown = false;
 
     this.generateWorld();
+    this.spawnWarmupIslandItems();
 
     // Randomize Drop Plane flight path across the 7200 x 7200 island
     const angle = rnd(0, Math.PI * 2);
@@ -417,7 +438,7 @@ export class GameEngine {
     const ey = MAP_CENTER + Math.sin(angle) * dist + py;
 
     this.plane = {
-      active: true,
+      active: false,
       sx,
       sy,
       ex,
@@ -434,27 +455,321 @@ export class GameEngine {
     const gliderItem = COSMETIC_CATALOG.find((c) => c.id === eq?.glider);
 
     this.players = [];
-    const me = this.createPlayer(playerName || 'You', false, 3, true);
+    const me = this.createPlayer(playerName || 'You', false, 3, false);
     if (skinItem) me.fl = skinItem.color;
     if (gliderItem) me.col = gliderItem.color;
     me.skinId = eq?.skin || 'skin_classic';
     me.pickaxeId = eq?.pickaxe || 'pick_fists';
     me.backblingId = eq?.backbling || 'bb_none';
-    me.x = sx;
-    me.y = sy;
+    me.x = SPAWN_ISLAND.cx + rnd(-80, 80);
+    me.y = SPAWN_ISLAND.cy + rnd(-65, 65);
     this.me = me;
     this.players.push(me);
 
-    for (let i = 0; i < TOTAL_PLAYERS - 1; i++) {
-      const bot = this.createPlayer(BOT_NAMES[i % BOT_NAMES.length], true, i, true);
-      bot.x = sx;
-      bot.y = sy;
-      bot.planeJumpAt = rnd(0.1, 0.9);
-      this.players.push(bot);
+    const initialBots = Math.min(14, TOTAL_PLAYERS - 1);
+    this.nextBotIdx = 0;
+    this.pendingBotSpawns = Math.max(0, TOTAL_PLAYERS - 1 - initialBots);
+    this.botSpawnTimer = 0.22;
+
+    for (let i = 0; i < initialBots; i++) {
+      this.spawnGradualBot(false);
     }
 
+    this.pushFeed(
+      `Spawn Island warm-up (${TOTAL_PLAYERS}-Player BR) — Drop Plane in ${SPAWN_COUNTDOWN_SEC}s`,
+      '#38bdf8'
+    );
     this.mouseX = this.viewW / 2 + 120;
     this.mouseY = this.viewH / 2;
+    this.sfx('go');
+    this.emitHud();
+  }
+
+  private spawnGradualBot(withRipple: boolean) {
+    const i = this.nextBotIdx++;
+    const bot = this.createPlayer(BOT_NAMES[i % BOT_NAMES.length], true, i, false);
+    bot.x = rnd(SPAWN_ISLAND.x + 70, SPAWN_ISLAND.x + SPAWN_ISLAND.w - 70);
+    bot.y = rnd(SPAWN_ISLAND.y + 70, SPAWN_ISLAND.y + SPAWN_ISLAND.h - 70);
+    bot.planeJumpAt = rnd(0.06, 0.94);
+    this.resolveWalls(bot, PLAYER_RADIUS);
+    this.players.push(bot);
+    if (withRipple) {
+      this.shockwaves.push({
+        x: bot.x,
+        y: bot.y,
+        r: 4,
+        mr: 26,
+        l: 0.28,
+        ml: 0.28,
+        c: '#38bdf8',
+      });
+    }
+  }
+
+  private spawnWarmupIslandItems() {
+    const si = SPAWN_ISLAND;
+
+    // 5 cozy small cottages around the perimeter of Spawn Island
+    const t = 22;
+    const gp = 76;
+    const cottages: Array<{ x: number; y: number; w: number; h: number; doorSide: 0 | 1 | 2 | 3 }> = [
+      { x: si.x + 180, y: si.y + 150, w: 195, h: 165, doorSide: 1 }, // NW house, south door
+      { x: si.x + si.w - 375, y: si.y + 150, w: 195, h: 165, doorSide: 1 }, // NE house, south door
+      { x: si.x + 140, y: si.cy - 90, w: 175, h: 180, doorSide: 3 }, // West cabin, east door
+      { x: si.x + 210, y: si.y + si.h - 325, w: 205, h: 165, doorSide: 0 }, // SW house, north door
+      { x: si.x + si.w - 400, y: si.y + si.h - 325, w: 205, h: 165, doorSide: 0 }, // SE house, north door
+    ];
+
+    cottages.forEach((hDef, idx) => {
+      const { x, y, w, h, doorSide } = hDef;
+      const roofColor = ROOF_COLORS[idx % ROOF_COLORS.length];
+      this.floors.push({ x, y, w, h, roofColor, roofAlpha: 1 });
+
+      const horiz = (yy: number, hasDoor: boolean) => {
+        if (hasDoor) {
+          const o = Math.round((w - gp) / 2);
+          this.walls.push({ x, y: yy, w: o, h: t });
+          this.walls.push({ x: x + o + gp, y: yy, w: w - o - gp, h: t });
+          this.doors.push({
+            id: this.nextId++,
+            x: x + o,
+            y: yy,
+            w: gp,
+            h: t,
+            horizontal: true,
+            open: false,
+            openProgress: 0,
+          });
+        } else {
+          this.walls.push({ x, y: yy, w, h: t });
+        }
+      };
+
+      const vert = (xx: number, hasDoor: boolean) => {
+        if (hasDoor) {
+          const o = Math.round((h - gp) / 2);
+          this.walls.push({ x: xx, y: y + t, w: t, h: o - t });
+          this.walls.push({ x: xx, y: y + o + gp, w: t, h: h - o - gp - t });
+          this.doors.push({
+            id: this.nextId++,
+            x: xx,
+            y: y + o,
+            w: t,
+            h: gp,
+            horizontal: false,
+            open: false,
+            openProgress: 0,
+          });
+        } else {
+          this.walls.push({ x: xx, y: y + t, w: t, h: h - 2 * t });
+        }
+      };
+
+      horiz(y, doorSide === 0);
+      horiz(y + h - t, doorSide === 1);
+      vert(x, doorSide === 2);
+      vert(x + w - t, doorSide === 3);
+
+      // Practice chest inside each little house
+      this.chests.push({
+        id: this.nextId++,
+        x: x + w * 0.5,
+        y: y + h * 0.5,
+        opened: false,
+        golden: idx === 1 || idx === 4,
+      });
+
+      // 2 practice floor items per house
+      for (let k = 0; k < 2; k++) {
+        const wi = k === 0 ? 1 + ((idx + 1) % 4) : idx % 2 === 0 ? 10 : 12;
+        this.loot.push({
+          id: this.nextId++,
+          x: x + t + 30 + (w - 2 * t - 60) * (k === 0 ? 0.24 : 0.76),
+          y: y + t + 30 + (h - 2 * t - 60) * (k === 0 ? 0.72 : 0.28),
+          t: 'w',
+          w: wi,
+          r: isStackable(wi) ? 0 : rollRarity(0.15),
+          n: wi === 12 ? 2 : undefined,
+        });
+      }
+    });
+
+    // Northern Weapon Rack staging pad
+    const rackWeapons: Array<{ w: number; r: RarityTier; n?: number }> = [
+      { w: 1, r: 1 },
+      { w: 2, r: 2 },
+      { w: 3, r: 2 },
+      { w: 4, r: 3 },
+      { w: 5, r: 3 },
+      { w: 10, r: 0, n: 4 },
+    ];
+    rackWeapons.forEach((item, idx) => {
+      const lx = si.cx - 175 + idx * 70;
+      const ly = si.cy - 280;
+      this.loot.push({
+        id: this.nextId++,
+        x: lx,
+        y: ly,
+        t: 'w',
+        w: item.w,
+        r: item.r,
+        n: item.n,
+      });
+    });
+
+    AMMO_TYPES.forEach((aType, idx) => {
+      this.loot.push({
+        id: this.nextId++,
+        x: si.cx - 135 + idx * 90,
+        y: si.cy - 235,
+        t: 'a',
+        w: 0,
+        r: 0,
+        ammoType: aType,
+        n: AMMO_INFO[aType].packAmount * 2,
+      });
+    });
+
+    const isClearWarmupSpot = (ox: number, oy: number, pad: number) => {
+      if (Math.abs(ox - si.cx) < 165 && Math.abs(oy - si.cy) < 165) return false;
+      if (ox > si.cx - 245 && ox < si.cx + 245 && oy > si.cy - 345 && oy < si.cy - 175) return false;
+      if (ox > si.cx - 45 && oy > si.cy - 65 && oy < si.cy + 65) return false;
+      return !cottages.some(
+        (c) => ox > c.x - pad && ox < c.x + c.w + pad && oy > c.y - pad && oy < c.y + c.h + pad
+      );
+    };
+
+    // Decorative trees across open grassy spaces
+    for (let i = 0; i < 16; i++) {
+      const tx = rnd(si.x + 85, si.x + si.w - 85);
+      const ty = rnd(si.y + 85, si.y + si.h - 85);
+      if (!isClearWarmupSpot(tx, ty, 65)) continue;
+      this.obstacles.push({
+        x: tx,
+        y: ty,
+        r: rnd(26, 38),
+        kind: 'tree',
+        hp: 65,
+        mh: 65,
+        hitFlash: 0,
+      });
+    }
+
+    // Breakable practice crates
+    const crateCoords: [number, number][] = [
+      [si.cx - 255, si.cy - 70],
+      [si.cx - 255, si.cy + 70],
+      [si.cx + 230, si.cy - 120],
+      [si.cx + 230, si.cy + 120],
+      [si.x + 115, si.y + 420],
+      [si.x + si.w - 115, si.y + 420],
+      [si.x + 560, si.y + 150],
+      [si.x + si.w - 560, si.y + 150],
+      [si.x + 560, si.y + si.h - 150],
+      [si.x + si.w - 560, si.y + si.h - 150],
+    ];
+    for (const [ox, oy] of crateCoords) {
+      if (!isClearWarmupSpot(ox, oy, 36)) continue;
+      this.obstacles.push({
+        x: ox,
+        y: oy,
+        r: 18,
+        kind: 'crate',
+        hp: 40,
+        mh: 40,
+        hitFlash: 0,
+      });
+    }
+  }
+
+  public skipSpawnCountdown() {
+    if (this.paused || this.ambient || this.over) return;
+    if (this.online) {
+      if (
+        this.onlineStatus?.phase === 'COUNTDOWN' &&
+        this.onlineStatus.countdown > SPAWN_SKIP_TO_SEC
+      ) {
+        this.sendWs({ type: 'skipCountdown' });
+        this.sfx('ui');
+      }
+      return;
+    }
+    if (this.matchPhase === 'SPAWN_ISLAND' && this.spawnCountdown > SPAWN_SKIP_TO_SEC) {
+      this.spawnCountdown = SPAWN_SKIP_TO_SEC;
+      this.pushFeed(`Countdown skipped to ${SPAWN_SKIP_TO_SEC}s`, '#fbbf24');
+      this.sfx('ui');
+      this.emitHud();
+    }
+  }
+
+  private launchDropPlaneFromSpawnIsland() {
+    this.matchPhase = 'PLANE';
+    this.spawnCountdown = 0;
+    this.elapsed = 0;
+    this.stormTick = 0;
+    this.kills = 0;
+    this.bullets = [];
+    this.grenades = [];
+    this.loot = this.loot.filter((l) => l.x >= 0);
+    this.obstacles = this.obstacles.filter((o) => o.x >= 0);
+    this.chests = this.chests.filter((c) => c.x >= 0);
+    this.deathCamBuffer = [];
+
+    // Backfill any unspawned bots straight onto the Drop Plane
+    while (this.pendingBotSpawns > 0) {
+      const i = this.nextBotIdx++;
+      const bot = this.createPlayer(BOT_NAMES[i % BOT_NAMES.length], true, i, true);
+      bot.planeJumpAt = rnd(0.06, 0.94);
+      this.players.push(bot);
+      this.pendingBotSpawns--;
+    }
+
+    this.plane.active = true;
+    this.plane.progress = 0;
+    this.plane.x = this.plane.sx;
+    this.plane.y = this.plane.sy;
+
+    for (const pl of this.players) {
+      pl.alive = true;
+      pl.hp = 100;
+      pl.sh = 0;
+      pl.st = 100;
+      pl.inv = [0, -1, -1, -1, -1, -1];
+      pl.invRarity = [0, 0, 0, 0, 0, 0];
+      pl.sl = 0;
+      pl.w = 0;
+      pl.c = {};
+      pl.am = {};
+      pl.ra = createEmptyReserve();
+      pl.gn = 0;
+      pl.rl = 0;
+      pl.rt = 0;
+      pl.rw = 0;
+      pl.hl = 0;
+      pl.ht = 0;
+      pl.hw = 0;
+      pl.kvx = 0;
+      pl.kvy = 0;
+      pl.hitFlash = 0;
+      pl.recoil = 0;
+      pl.dm = 0;
+      pl.k = 0;
+      pl.pts = 0;
+      pl.pt2 = 0;
+      pl.inPlane = true;
+      pl.dropTime = 0;
+      pl.x = this.plane.sx;
+      pl.y = this.plane.sy;
+      pl.tx = 0;
+      pl.ty = 0;
+      pl.tt = 0;
+      pl.lb = null;
+      pl.targetChest = null;
+      pl.emote = null;
+      pl.emoteTimer = 0;
+    }
+
+    this.pushFeed('Drop Plane airborne — Press Space to jump!', '#38bdf8');
     this.sfx('go');
     this.emitHud();
   }
@@ -525,8 +840,8 @@ export class GameEngine {
     const minLand = ISLAND_MARGIN + 100;
     const maxLand = MAP_SIZE - ISLAND_MARGIN - 100;
 
-    // 520 Trees, rocks, crates, and explosive barrels across the larger 7200 x 7200 map
-    for (let i = 0; i < 520; i++) {
+    // 580 Trees, rocks, crates, and explosive barrels across the larger 7200 x 7200 map
+    for (let i = 0; i < 580; i++) {
       const q = Math.random();
       const kind: Obstacle['kind'] =
         q < 0.56 ? 'tree' : q < 0.84 ? 'rock' : q < 0.94 ? 'crate' : 'barrel';
@@ -550,8 +865,8 @@ export class GameEngine {
       });
     }
 
-    // 540 Ground loot spawns across the island (weapons, meds, throwables & ammo packs)
-    for (let i = 0; i < 540; i++) {
+    // 640 Ground loot spawns across the island for 100-player BR
+    for (let i = 0; i < 640; i++) {
       const q = Math.random();
       let w: number;
       if (q < 0.52) {
@@ -580,8 +895,8 @@ export class GameEngine {
       });
     }
 
-    // 190 Ground Ammo Packs across the island
-    for (let i = 0; i < 190; i++) {
+    // 220 Ground Ammo Packs across the island
+    for (let i = 0; i < 220; i++) {
       const aType = AMMO_TYPES[Math.floor(Math.random() * AMMO_TYPES.length)];
       this.loot.push({
         id: this.nextId++,
@@ -1273,7 +1588,7 @@ export class GameEngine {
     this.cameraZoom += (targetZoom - this.cameraZoom) * Math.min(1, dt * 6.5);
 
     // Record 3-second Death Cam ring buffer while player is alive
-    if (me && me.alive && !me.fin) {
+    if (me && me.alive && !me.fin && this.matchPhase !== 'SPAWN_ISLAND') {
       this.deathCamElapsed += dt;
       this.deathCamAcc += dt;
       if (this.deathCamAcc >= 0.033) {
@@ -1290,6 +1605,26 @@ export class GameEngine {
   }
 
   private updateSimulation(dt: number) {
+    const inSpawnWarmup = !this.ambient && this.matchPhase === 'SPAWN_ISLAND';
+    if (inSpawnWarmup) {
+      if (this.pendingBotSpawns > 0) {
+        this.botSpawnTimer -= dt;
+        if (this.botSpawnTimer <= 0) {
+          this.botSpawnTimer += 0.22;
+          const batch = Math.min(2, this.pendingBotSpawns);
+          for (let i = 0; i < batch; i++) {
+            this.spawnGradualBot(true);
+            this.pendingBotSpawns--;
+          }
+        }
+      }
+      this.spawnCountdown -= dt;
+      if (this.spawnCountdown <= 0) {
+        this.launchDropPlaneFromSpawnIsland();
+        return;
+      }
+    }
+
     this.elapsed += dt;
 
     // Update building roof fade based on active player/spectated player inside building
@@ -1346,6 +1681,9 @@ export class GameEngine {
 
       if (this.plane.progress >= 1) {
         this.plane.active = false;
+        if (this.matchPhase === 'PLANE') {
+          this.matchPhase = 'ACTIVE';
+        }
         for (const pl of this.players) {
           if (pl.alive && pl.inPlane) {
             pl.inPlane = false;
@@ -1356,16 +1694,19 @@ export class GameEngine {
       }
     }
 
-    this.updateStorm(dt);
-    this.stormTick += dt;
-    const tick = this.stormTick >= 1;
-    if (tick) this.stormTick -= 1;
+    let tick = false;
+    if (!inSpawnWarmup) {
+      this.updateStorm(dt);
+      this.stormTick += dt;
+      tick = this.stormTick >= 1;
+      if (tick) this.stormTick -= 1;
+      this.nextAir -= dt;
+    }
 
     this.shake = Math.max(0, this.shake - dt);
     this.hitmarker = Math.max(0, this.hitmarker - dt);
-    this.nextAir -= dt;
 
-    if (this.nextAir <= 0) {
+    if (!inSpawnWarmup && this.nextAir <= 0) {
       this.nextAir = 42;
       const a = rnd(0, Math.PI * 2);
       const d = rnd(0, this.storm.r * 0.65);
@@ -1465,7 +1806,11 @@ export class GameEngine {
       let vy = 0;
 
       if (p.bot) {
-        this.runBotAI(p, dt);
+        if (inSpawnWarmup) {
+          this.runWarmupBotAI(p, dt);
+        } else {
+          this.runBotAI(p, dt);
+        }
         const l0 = hyp(p.vx, p.vy) || 1;
         const tx = p.vx / l0;
         const ty = p.vy / l0;
@@ -1487,11 +1832,15 @@ export class GameEngine {
       }
 
       let sp = p.bot ? 215 : 245;
-      const inWater =
-        p.x < ISLAND_MARGIN ||
-        p.x > MAP_SIZE - ISLAND_MARGIN ||
-        p.y < ISLAND_MARGIN ||
-        p.y > MAP_SIZE - ISLAND_MARGIN;
+      const inWater = inSpawnWarmup
+        ? p.x < SPAWN_ISLAND.x ||
+          p.x > SPAWN_ISLAND.x + SPAWN_ISLAND.w ||
+          p.y < SPAWN_ISLAND.y ||
+          p.y > SPAWN_ISLAND.y + SPAWN_ISLAND.h
+        : p.x < ISLAND_MARGIN ||
+          p.x > MAP_SIZE - ISLAND_MARGIN ||
+          p.y < ISLAND_MARGIN ||
+          p.y > MAP_SIZE - ISLAND_MARGIN;
       if (inWater) sp *= 0.65;
 
       const isHealing = (p.hl ?? 0) > 0;
@@ -1525,8 +1874,19 @@ export class GameEngine {
         p.kvy = Math.abs(p.kvy || 0) < 8 ? 0 : (p.kvy || 0) * damp;
       }
 
-      p.x = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.x));
-      p.y = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.y));
+      if (inSpawnWarmup) {
+        p.x = Math.max(
+          SPAWN_ISLAND.x - 24,
+          Math.min(SPAWN_ISLAND.x + SPAWN_ISLAND.w + 24, p.x)
+        );
+        p.y = Math.max(
+          SPAWN_ISLAND.y - 24,
+          Math.min(SPAWN_ISLAND.y + SPAWN_ISLAND.h + 24, p.y)
+        );
+      } else {
+        p.x = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.x));
+        p.y = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.y));
+      }
       p.cd -= dt;
       p.pc -= dt;
 
@@ -1573,6 +1933,7 @@ export class GameEngine {
 
       for (const q of this.players) {
         if (q !== p && q.alive && !q.inPlane && q.dropTime <= 0) {
+          if (Math.abs(p.x - q.x) >= 30 || Math.abs(p.y - q.y) >= 30) continue;
           const d = hyp(p.x - q.x, p.y - q.y);
           if (d > 0 && d < 30) {
             const k = (30 - d) / 2;
@@ -1584,8 +1945,9 @@ export class GameEngine {
 
       for (const o of this.obstacles) {
         const colR = o.kind === 'tree' ? o.r * 0.45 : o.r;
-        const d = hyp(p.x - o.x, p.y - o.y);
         const m = colR + PLAYER_RADIUS;
+        if (Math.abs(p.x - o.x) >= m || Math.abs(p.y - o.y) >= m) continue;
+        const d = hyp(p.x - o.x, p.y - o.y);
         if (d < m && d > 0) {
           p.x = o.x + ((p.x - o.x) / d) * m;
           p.y = o.y + ((p.y - o.y) / d) * m;
@@ -1657,7 +2019,7 @@ export class GameEngine {
         }
       }
 
-      if (tick && hyp(p.x - this.storm.x, p.y - this.storm.y) > this.storm.r) {
+      if (!inSpawnWarmup && tick && hyp(p.x - this.storm.x, p.y - this.storm.y) > this.storm.r) {
         this.damagePlayer(p, 2 + this.storm.i * 1.5, null);
       }
     }
@@ -1680,7 +2042,7 @@ export class GameEngine {
     for (const f of this.feed) f.t -= dt;
     this.feed = this.feed.filter((f) => f.t > 0);
 
-    if (this.ambient) return;
+    if (this.ambient || inSpawnWarmup) return;
 
     const alivePlayers = this.players.filter((q) => q.alive);
     const al = alivePlayers.length;
@@ -1821,8 +2183,13 @@ export class GameEngine {
           }
         }
       }
-      g.x = Math.max(gr, Math.min(MAP_SIZE - gr, g.x));
-      g.y = Math.max(gr, Math.min(MAP_SIZE - gr, g.y));
+      if (!this.ambient && this.matchPhase === 'SPAWN_ISLAND') {
+        g.x = Math.max(SPAWN_ISLAND.x - 24 + gr, Math.min(SPAWN_ISLAND.x + SPAWN_ISLAND.w + 24 - gr, g.x));
+        g.y = Math.max(SPAWN_ISLAND.y - 24 + gr, Math.min(SPAWN_ISLAND.y + SPAWN_ISLAND.h + 24 - gr, g.y));
+      } else {
+        g.x = Math.max(gr, Math.min(MAP_SIZE - gr, g.x));
+        g.y = Math.max(gr, Math.min(MAP_SIZE - gr, g.y));
+      }
     }
   }
 
@@ -1935,6 +2302,7 @@ export class GameEngine {
 
   private resolveWalls(p: { x: number; y: number }, r: number) {
     const pushOutRect = (rx: number, ry: number, rw: number, rh: number) => {
+      if (p.x + r < rx || p.x - r > rx + rw || p.y + r < ry || p.y - r > ry + rh) return;
       const nx = Math.max(rx, Math.min(p.x, rx + rw));
       const ny = Math.max(ry, Math.min(p.y, ry + rh));
       const dx = p.x - nx;
@@ -1964,6 +2332,7 @@ export class GameEngine {
     for (let k = 0; k < this.obstacles.length; k++) {
       const o = this.obstacles[k];
       const hitR = o.kind === 'tree' ? o.r * 0.48 : o.r;
+      if (Math.abs(b.x - o.x) > hitR || Math.abs(b.y - o.y) > hitR) continue;
       if (hyp(b.x - o.x, b.y - o.y) < hitR) {
         this.damageObstacle(k, b.d, b.o);
         if (b.o === this.me) this.hitmarker = 0.1;
@@ -1991,6 +2360,8 @@ export class GameEngine {
         !p.inPlane &&
         p.dropTime <= 0 &&
         p !== b.o &&
+        Math.abs(b.x - p.x) < PLAYER_RADIUS + 2 &&
+        Math.abs(b.y - p.y) < PLAYER_RADIUS + 2 &&
         hyp(b.x - p.x, b.y - p.y) < PLAYER_RADIUS + 1
       ) {
         this.damagePlayer(p, b.d, b.o);
@@ -2058,6 +2429,17 @@ export class GameEngine {
 
   private damagePlayer(p: Player, amount: number, attacker: Player | null) {
     if (!p.alive || p.inPlane || p.dropTime > 0) return;
+    if (!this.ambient && this.matchPhase === 'SPAWN_ISLAND') {
+      p.hitFlash = 0.08;
+      this.spawnParticles(p.x, p.y, p.col, 4);
+      if (attacker === this.me) {
+        this.hitmarker = 0.12;
+        this.sfxAt('hit', p.x, p.y);
+      } else if (p === this.me) {
+        this.sfx('hit');
+      }
+      return;
+    }
     let d = amount;
     if (attacker && attacker !== p) {
       attacker.dm += d;
@@ -2497,11 +2879,31 @@ export class GameEngine {
     }
   }
 
+  private runWarmupBotAI(b: Player, dt: number) {
+    b.tt -= dt;
+    if (b.tt <= 0 || hyp(b.tx - b.x, b.ty - b.y) < 30) {
+      b.tt = rnd(1.4, 3.6);
+      b.tx = rnd(SPAWN_ISLAND.x + 40, SPAWN_ISLAND.x + SPAWN_ISLAND.w - 40);
+      b.ty = rnd(SPAWN_ISLAND.y + 40, SPAWN_ISLAND.y + SPAWN_ISLAND.h - 40);
+      if (!b.emote && Math.random() < 0.16) {
+        b.emote = EMOTES[Math.floor(Math.random() * EMOTES.length)];
+        b.emoteTimer = 2.0;
+      }
+    }
+    b.vx = b.tx - b.x;
+    b.vy = b.ty - b.y;
+    b.a = Math.atan2(b.vy, b.vx);
+    if (b.cd <= 0 && Math.random() < 0.018) {
+      this.shoot(b);
+    }
+  }
+
   private runBotAI(b: Player, dt: number) {
     let tg: Player | null = null;
     let bd = 1e9;
     for (const q of this.players) {
       if (q === b || !q.alive || q.inPlane || q.dropTime > 0) continue;
+      if (Math.abs(q.x - b.x) > bd || Math.abs(q.y - b.y) > bd) continue;
       const d = hyp(q.x - b.x, q.y - b.y);
       if (d < bd) {
         bd = d;
@@ -2749,9 +3151,15 @@ export class GameEngine {
     const dm = Math.round(me.dm);
     const b4 = getLevelInfo(profile.xp || 0);
     const xp = Math.round(
-      this.kills * 30 + dm / 10 + ss / 6 + (TOTAL_PLAYERS + 1 - pl) * 4 + (pl === 1 ? 150 : 0)
+      this.kills * 30 +
+        dm / 10 +
+        ss / 6 +
+        (TOTAL_PLAYERS + 1 - pl) * 1.2 +
+        (pl === 1 ? 150 : 0)
     );
-    const co = this.kills * 15 + (pl === 1 ? 100 : Math.max(0, TOTAL_PLAYERS - pl) * 3);
+    const co =
+      this.kills * 15 +
+      (pl === 1 ? 100 : Math.round(Math.max(0, TOTAL_PLAYERS - pl) * 0.75));
 
     let ar: MatchResult['ar'] = null;
     if (this.isArena) {
@@ -2870,8 +3278,16 @@ export class GameEngine {
 
     const cam = this.getCameraTarget();
     const nearby = this.getNearbyAction();
+    const spawnActive = this.online
+      ? this.onlineStatus?.phase === 'COUNTDOWN'
+      : !this.ambient && this.matchPhase === 'SPAWN_ISLAND';
+    const spawnCountdown = this.online
+      ? Math.max(0, this.onlineStatus?.countdown ?? 0)
+      : Math.max(0, Math.ceil(this.spawnCountdown));
+
     const aliveCount = this.players.filter((q) => q.alive).length;
     const inStorm =
+      !spawnActive &&
       me.alive &&
       !me.inPlane &&
       hyp(me.x - this.storm.x, me.y - this.storm.y) > this.storm.r;
@@ -2959,6 +3375,11 @@ export class GameEngine {
       eliminatedBy: !me.alive ? (me.by ? me.by.name : null) : null,
       playerAlive: me.alive,
       onlineStatus: this.online ? this.onlineStatus : null,
+      spawnIsland: {
+        active: spawnActive,
+        countdown: spawnCountdown,
+        canSkip: spawnActive && spawnCountdown > SPAWN_SKIP_TO_SEC,
+      },
       minimap: {
         x: cam.x,
         y: cam.y,
@@ -3104,9 +3525,15 @@ export class GameEngine {
       const profile = this.callbacks.getProfile();
       const b4 = getLevelInfo(profile.xp || 0);
       const xp = Math.round(
-        srv.k * 30 + srv.dm / 10 + srv.sv / 6 + (TOTAL_PLAYERS + 1 - srv.pl) * 4 + (srv.pl === 1 ? 150 : 0)
+        srv.k * 30 +
+          srv.dm / 10 +
+          srv.sv / 6 +
+          (TOTAL_PLAYERS + 1 - srv.pl) * 1.2 +
+          (srv.pl === 1 ? 150 : 0)
       );
-      const co = srv.k * 15 + (srv.pl === 1 ? 100 : Math.max(0, TOTAL_PLAYERS - srv.pl) * 3);
+      const co =
+        srv.k * 15 +
+        (srv.pl === 1 ? 100 : Math.round(Math.max(0, TOTAL_PLAYERS - srv.pl) * 0.75));
 
       this.callbacks.saveProfileUpdate((u) => {
         u.xp = (u.xp || 0) + xp;
@@ -3583,12 +4010,16 @@ export class GameEngine {
         hitmarker: 0,
         paused: this.paused,
         ambient: false,
+        spawnIslandActive: false,
         mouseX: this.mouseX,
         mouseY: this.mouseY,
       };
     }
 
     const cam = this.getCameraTarget();
+    const spawnIslandActive = this.online
+      ? this.onlineStatus?.phase === 'COUNTDOWN'
+      : !this.ambient && this.matchPhase === 'SPAWN_ISLAND';
     return {
       isDeathCam: false,
       camX: cam.x,
@@ -3614,6 +4045,7 @@ export class GameEngine {
       hitmarker: this.hitmarker,
       paused: this.paused,
       ambient: this.ambient,
+      spawnIslandActive,
       mouseX: this.mouseX,
       mouseY: this.mouseY,
     };

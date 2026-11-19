@@ -54,13 +54,13 @@ service cloud.firestore {
 
     function isValidUserAccount(data) {
       return data.keys().hasAll([
-          'uid', 'displayName', 'tagId', 'coins', 'xp', 'hype',
-          'eq', 'sk', 'ownedCosmetics', 'equipped', 's', 'mode',
+          'uid', 'displayName', 'tagId', 'coins', 'gems', 'nameChangesUsed',
+          'xp', 'hype', 'eq', 'sk', 'ownedCosmetics', 'equipped', 's', 'mode',
           'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
-          'uid', 'displayName', 'tagId', 'coins', 'xp', 'hype',
-          'eq', 'sk', 'ownedCosmetics', 'equipped', 's', 'mode',
+          'uid', 'displayName', 'tagId', 'coins', 'gems', 'nameChangesUsed',
+          'xp', 'hype', 'eq', 'sk', 'ownedCosmetics', 'equipped', 's', 'mode',
           'createdAt', 'updatedAt'
         ])
         && data.uid is string
@@ -75,6 +75,8 @@ service cloud.firestore {
         && data.tagId.size() == 5
         && data.tagId.matches('^#[0-9]{4}$')
         && data.coins is number && data.coins >= 0 && data.coins <= 10000000
+        && data.gems is number && data.gems >= 0 && data.gems <= 10000000
+        && data.nameChangesUsed is number && data.nameChangesUsed >= 0 && data.nameChangesUsed <= 100000
         && data.xp is number && data.xp >= 0 && data.xp <= 100000000
         && data.hype is number && data.hype >= 0 && data.hype <= 1000000
         && data.eq is number && data.eq >= -1 && data.eq <= 20
@@ -121,8 +123,8 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().diff(existing()).affectedKeys().hasOnly([
-          'displayName', 'coins', 'xp', 'hype', 'eq', 'sk',
-          'ownedCosmetics', 'equipped', 's', 'mode', 'updatedAt'
+          'displayName', 'coins', 'gems', 'nameChangesUsed', 'xp', 'hype',
+          'eq', 'sk', 'ownedCosmetics', 'equipped', 's', 'mode', 'updatedAt'
         ]);
       allow delete: if false;
     }

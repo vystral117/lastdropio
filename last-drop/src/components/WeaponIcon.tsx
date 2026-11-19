@@ -2,6 +2,90 @@ import React from 'react';
 import { RARITY_TIERS, WP } from '../game/constants';
 import { RarityTier } from '../game/types';
 
+export function SkullSprite({ className = 'w-5 h-5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
+      {/* Cranium + Jaw */}
+      <path
+        d="M16 3C9.6 3 5 7.4 5 13.4c0 3.3 1.4 6 3.6 7.8V26c0 1.4 1.1 2.5 2.5 2.5h9.8c1.4 0 2.5-1.1 2.5-2.5v-4.8c2.2-1.8 3.6-4.5 3.6-7.8C27 7.4 22.4 3 16 3z"
+        fill="#f1f5f9"
+        stroke="#090e17"
+        strokeWidth="2.4"
+        strokeLinejoin="round"
+      />
+      {/* Subtle brow highlight */}
+      <path
+        d="M9.5 10.5c1-3 3.6-4.6 6.5-4.6"
+        fill="none"
+        stroke="#ffffff"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      {/* Eye sockets */}
+      <path
+        d="M9.2 13.8c0-1.6 1.2-2.7 2.8-2.4 1.4.3 2.4 1.5 2.4 2.9 0 1.3-1 2.3-2.5 2.3-1.6 0-2.7-1.2-2.7-2.8z"
+        fill="#0f172a"
+      />
+      <path
+        d="M22.8 13.8c0-1.6-1.2-2.7-2.8-2.4-1.4.3-2.4 1.5-2.4 2.9 0 1.3 1 2.3 2.5 2.3 1.6 0 2.7-1.2 2.7-2.8z"
+        fill="#0f172a"
+      />
+      {/* Nasal cavity */}
+      <path d="M16 16.5l-1.7 3h3.4z" fill="#0f172a" stroke="#0f172a" strokeWidth="0.6" strokeLinejoin="round" />
+      {/* Jaw teeth lines */}
+      <line x1="12.5" y1="22.8" x2="12.5" y2="28" stroke="#090e17" strokeWidth="2" strokeLinecap="round" />
+      <line x1="16" y1="22.8" x2="16" y2="28" stroke="#090e17" strokeWidth="2" strokeLinecap="round" />
+      <line x1="19.5" y1="22.8" x2="19.5" y2="28" stroke="#090e17" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function AliveSprite({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 28 28" className={className} aria-hidden="true">
+      <circle cx="14" cy="9.5" r="5" fill="#e2e8f0" stroke="#090e17" strokeWidth="2.2" />
+      <path
+        d="M5.5 24c.5-4.5 3.9-7.5 8.5-7.5s8 3 8.5 7.5z"
+        fill="#cbd5e1"
+        stroke="#090e17"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function CoinSprite({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="#f59e0b" stroke="#090e17" strokeWidth="2" />
+      <circle cx="12" cy="12" r="7" fill="#fbbf24" stroke="#b45309" strokeWidth="1.2" />
+      <polygon
+        points="12,7.2 13.4,10.2 16.7,10.6 14.2,12.8 14.9,16 12,14.4 9.1,16 9.8,12.8 7.3,10.6 10.6,10.2"
+        fill="#fffbeb"
+      />
+    </svg>
+  );
+}
+
+export function GemSprite({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <polygon
+        points="7,3 17,3 22,9 12,21 2,9"
+        fill="#c084fc"
+        stroke="#090e17"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <polygon points="7,3 17,3 15,9 9,9" fill="#e879f9" />
+      <polygon points="2,9 9,9 12,21" fill="#a855f7" />
+      <polygon points="22,9 15,9 12,21" fill="#7e22ce" />
+      <polygon points="9,9 15,9 12,21" fill="#d946ef" />
+    </svg>
+  );
+}
+
 export function LastDropLogo({ className = '' }: { className?: string }) {
   return (
     <svg

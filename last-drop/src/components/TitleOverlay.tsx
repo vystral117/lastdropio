@@ -2,15 +2,19 @@ import React, { useEffect, useState } from 'react';
 import {
   CHANGELOG,
   COSMETIC_CATALOG,
+  GEM_PACKS,
+  GemPack,
   KEYBIND_LABELS,
+  NAME_CHANGE_GEM_COST,
   POIS,
   RARITY_COLORS,
   RARITY_NAMES,
   RARITY_TIERS,
   RARITY_WEIGHTS,
+  SEASON_1_LAUNCH_AT,
   SKINS,
+  TOTAL_PLAYERS,
   VER,
-  WP,
 } from '../game/constants';
 import { getLevelInfo, getRankInfo } from '../game/storage';
 import {
@@ -22,8 +26,12 @@ import {
   TitleTab,
   UserProfile,
 } from '../game/types';
-import { CosmeticVisual } from './CosmeticVisual';
-import { LastDropLogo, PlayerAvatar, WeaponIcon } from './WeaponIcon';
+import {
+  CosmeticVisual,
+  CrateGliderVisual,
+  LoadoutSpriteShowcase,
+} from './CosmeticVisual';
+import { CoinSprite, GemSprite, LastDropLogo } from './WeaponIcon';
 
 interface TitleOverlayProps {
   db: GameDB;
@@ -50,7 +58,8 @@ interface TitleOverlayProps {
   onResetKeybinds: () => void;
   onGoogleSignIn: () => void;
   onGoogleSignOut: () => void;
-  onUpdateDisplayName: (name: string) => void;
+  onSelectGemPack: (pack: GemPack) => void;
+  onUpdateDisplayName: (name: string) => { ok: boolean; message: string };
   onAuth: (name: string, pass: string) => Promise<string | null>;
   onSignOut: () => void;
 }
@@ -60,8 +69,27 @@ const LOCKER_CATEGORIES: { id: LockerCategory; label: string }[] = [
   { id: 'pickaxe', label: 'Pickaxes' },
   { id: 'backbling', label: 'Back Blings' },
   { id: 'glider', label: 'Gliders' },
-  { id: 'music', label: 'Lobby Music' },
+  { id: 'music', label: 'Music' },
 ];
+
+type ShopCategoryTab = LockerCategory | 'crate' | 'gems';
+type SettingsSubTab = 'general' | 'controls';
+
+function formatCountdown(msRemaining: number) {
+  const totalSec = Math.max(0, Math.floor(msRemaining / 1000));
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    days: pad(days),
+    hours: pad(hours),
+    mins: pad(mins),
+    secs: pad(secs),
+    isLive: totalSec === 0,
+  };
+}
 
 function GoogleIcon() {
   return (
@@ -85,6 +113,131 @@ function GoogleIcon() {
     </svg>
   );
 }
+
+function GemPackArt({ pack, index }: { pack: GemPack; index: number }) {
+  const count = index === 0 ? 1 : index === 1 ? 2 : index === 2 ? 3 : 4;
+  const offsets =
+    count === 1
+      ? [[84, 48, 1.15]]
+      : count === 2
+        ? [[68, 50, 0.95], [100, 46, 1.05]]
+        : count === 3
+          ? [[56, 52, 0.85], [84, 44, 1.1], [112, 52, 0.85]]
+          : [[48, 54, 0.8], [72, 46, 1], [96, 46, 1], [120, 54, 0.8]];
+
+  return (
+    <div className="relative w-full h-24 rounded-lg overflow-hidden border-2 border-[#090e17] bg-[#10192b] flex items-center justify-center">
+      <div
+        className="absolute inset-x-0 top-0 h-1"
+        style={{ backgroundColor: pack.accent }}
+        aria-hidden="true"
+      />
+      <svg viewBox="0 0 168 96" className="w-full h-full" aria-hidden="true">
+        {offsets.map(([cx, cy, s], idx) => (
+          <g key={idx} transform={`translate(${cx}, ${cy}) scale(${s})`}>
+            <polygon
+              points="-10,-16 10,-16 18,-4 0,18 -18,-4"
+              fill={pack.accent}
+              stroke="#090e17"
+              strokeWidth="2.4"
+              strokeLinejoin="round"
+            />
+            <polygon points="-10,-16 10,-16 6,-4 -6,-4" fill="#ffffff" fillOpacity="0.34" />
+            <polygon points="-18,-4 -6,-4 0,18" fill="#090e17" fillOpacity="0.18" />
+            <polygon points="18,-4 6,-4 0,18" fill="#090e17" fillOpacity="0.32" />
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function ShadowRewardSprite({
+  kind,
+}: {
+  kind: 'outfit' | 'pickaxe' | 'backbling' | 'glider' | 'mythic';
+}) {
+  return (
+    <svg viewBox="0 0 96 96" className="w-24 h-24 select-none" aria-hidden="true">
+      {kind === 'outfit' && (
+        <g>
+          {/* Hooded survivor top-down silhouette */}
+          <ellipse cx="48" cy="52" rx="22" ry="18" fill="#04060b" stroke="#1e293b" strokeWidth="2" />
+          <circle cx="48" cy="48" r="17" fill="#04060b" stroke="#1e293b" strokeWidth="2" />
+          <circle cx="62" cy="39" r="6" fill="#04060b" stroke="#1e293b" strokeWidth="1.8" />
+          <circle cx="62" cy="57" r="6" fill="#04060b" stroke="#1e293b" strokeWidth="1.8" />
+          <path d="M35 39 L48 27 L61 39 Z" fill="#04060b" stroke="#1e293b" strokeWidth="1.8" />
+        </g>
+      )}
+      {kind === 'pickaxe' && (
+        <g transform="translate(48, 48) rotate(-32)">
+          <rect x="-4" y="-28" width="8" height="58" rx="3" fill="#04060b" stroke="#1e293b" strokeWidth="2" />
+          <path
+            d="M-24 -16 Q0 -30 24 -16 Q14 -10 0 -12 Q-14 -10 -24 -16 Z"
+            fill="#04060b"
+            stroke="#1e293b"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <rect x="-7" y="-22" width="14" height="9" rx="2" fill="#04060b" stroke="#1e293b" strokeWidth="1.8" />
+        </g>
+      )}
+      {kind === 'backbling' && (
+        <g>
+          {/* Redacted winged jetpack silhouette */}
+          <path
+            d="M48 36 L14 24 L22 52 L42 54 Z"
+            fill="#04060b"
+            stroke="#1e293b"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M48 36 L82 24 L74 52 L54 54 Z"
+            fill="#04060b"
+            stroke="#1e293b"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <rect x="36" y="28" width="24" height="36" rx="6" fill="#04060b" stroke="#1e293b" strokeWidth="2" />
+          <rect x="39" y="64" width="6" height="8" rx="2" fill="#04060b" stroke="#1e293b" strokeWidth="1.5" />
+          <rect x="51" y="64" width="6" height="8" rx="2" fill="#04060b" stroke="#1e293b" strokeWidth="1.5" />
+        </g>
+      )}
+      {kind === 'glider' && (
+        <g>
+          <path
+            d="M10 56 L48 22 L86 56 L66 66 L48 52 L30 66 Z"
+            fill="#04060b"
+            stroke="#1e293b"
+            strokeWidth="2.2"
+            strokeLinejoin="round"
+          />
+          <path d="M48 22 L48 64" stroke="#1e293b" strokeWidth="1.8" />
+        </g>
+      )}
+      {kind === 'mythic' && (
+        <g>
+          {/* Tier 100 Crowned Shadow Skin silhouette */}
+          <path
+            d="M26 30 L34 16 L48 26 L62 16 L70 30 Z"
+            fill="#04060b"
+            stroke="#334155"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <ellipse cx="48" cy="56" rx="24" ry="18" fill="#04060b" stroke="#334155" strokeWidth="2" />
+          <circle cx="48" cy="48" r="18" fill="#04060b" stroke="#334155" strokeWidth="2" />
+          <circle cx="64" cy="40" r="6" fill="#04060b" stroke="#334155" strokeWidth="1.8" />
+          <circle cx="64" cy="58" r="6" fill="#04060b" stroke="#334155" strokeWidth="1.8" />
+        </g>
+      )}
+    </svg>
+  );
+}
+
+const FRAME_PANEL =
+  'bg-[#182338] border-[3px] border-[#090e17] shadow-[0_6px_0_#090e17] rounded-xl overflow-hidden';
 
 export function TitleOverlay({
   db,
@@ -111,6 +264,7 @@ export function TitleOverlay({
   onResetKeybinds,
   onGoogleSignIn,
   onGoogleSignOut,
+  onSelectGemPack,
   onUpdateDisplayName,
   onAuth,
   onSignOut,
@@ -119,9 +273,18 @@ export function TitleOverlay({
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
+  const [nameFeedback, setNameFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [lockerCat, setLockerCat] = useState<LockerCategory>('skin');
-  const [shopFilter, setShopFilter] = useState<'all' | LockerCategory>('all');
+  const [shopCat, setShopCat] = useState<ShopCategoryTab>('skin');
+  const [settingsSub, setSettingsSub] = useState<SettingsSubTab>('general');
+  const [selectedVersion, setSelectedVersion] = useState<string>(CHANGELOG[0]?.v || VER);
   const [onlinePlayers, setOnlinePlayers] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (tab !== 'play') return;
@@ -135,7 +298,7 @@ export function TitleOverlay({
           setOnlinePlayers(data.onlinePlayers);
         }
       } catch {
-        // Ignore when running static-only without backend
+        // Ignore when backend online status isn't running
       }
     };
     void loadStatus();
@@ -146,6 +309,7 @@ export function TitleOverlay({
     };
   }, [tab]);
 
+  const countdown = formatCountdown(SEASON_1_LAUNCH_AT - nowMs);
   const levelInfo = getLevelInfo(profile.xp || 0);
   const rankInfo = getRankInfo(profile.hype || 0);
   const stats = profile.s;
@@ -153,15 +317,25 @@ export function TitleOverlay({
 
   const eq = profile.equipped;
   const equippedSkin = COSMETIC_CATALOG.find((c) => c.id === eq.skin);
+  const equippedPickaxe = COSMETIC_CATALOG.find((c) => c.id === eq.pickaxe);
+  const equippedBackBling = COSMETIC_CATALOG.find((c) => c.id === eq.backbling);
   const equippedGlider = COSMETIC_CATALOG.find((c) => c.id === eq.glider);
   const equippedMusic = COSMETIC_CATALOG.find((c) => c.id === eq.music);
 
-  // Legacy crate glider color fallback if user opened a crate glider & equipped profile.eq >= 0
   const gliderColor =
     profile.eq >= 0 && SKINS[profile.eq]
       ? SKINS[profile.eq].c
       : equippedGlider?.color || '#4cc9f0';
   const skinColor = equippedSkin?.color || '#e0ac82';
+  const ownedSet = new Set(profile.ownedCosmetics || []);
+
+  const activeNavTab: TitleTab = tab === 'controls' ? 'settings' : tab;
+
+  const effectiveSettingsSub: SettingsSubTab =
+    tab === 'controls' ? 'controls' : settingsSub;
+
+  const activeChangelogEntry =
+    CHANGELOG.find((entry) => entry.v === selectedVersion) || CHANGELOG[0];
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,327 +351,294 @@ export function TitleOverlay({
     }
   };
 
-  const navTab = (id: TitleTab, label: string) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => {
-        onUiClick();
-        onSetTab(id);
-      }}
-      className={`px-3.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-        tab === id
-          ? 'bg-[#2563eb] text-white border border-[#60a5fa]/70 shadow-[0_2px_12px_rgba(37,99,235,0.45)]'
-          : 'bg-[#0b1733]/75 text-[#cbd5e1] border border-white/10 hover:text-white hover:bg-[#173064]'
-      }`}
-    >
-      {label}
-    </button>
-  );
+  const navLink = (id: TitleTab, label: string) => {
+    const active = activeNavTab === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => {
+          onUiClick();
+          if (id === 'settings') setSettingsSub('general');
+          onSetTab(id);
+        }}
+        className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer transition-all ${
+          active
+            ? 'bg-[#2563eb] text-white border-2 border-[#090e17] shadow-[0_3px_0_#090e17]'
+            : 'text-[#cbd5e1] border-2 border-transparent hover:text-white hover:bg-[#1e2c46]'
+        }`}
+      >
+        {label}
+      </button>
+    );
+  };
 
-  const ownedSet = new Set(profile.ownedCosmetics || []);
+  const shopItems =
+    shopCat === 'crate' || shopCat === 'gems'
+      ? []
+      : COSMETIC_CATALOG.filter((item) => item.price > 0 && item.category === shopCat);
+
+  const lockerItems = COSMETIC_CATALOG.filter((item) => item.category === lockerCat);
 
   return (
-    <div className="fixed inset-0 z-20 flex flex-col justify-between bg-[#091530]/72 overflow-y-auto ld-scroll">
-      {/* ZombsRoyale-Style Top Navigation Bar */}
-      <header className="w-full bg-[#0d1f44]/95 border-b-2 border-[#264c96] px-4 lg:px-8 py-2.5 shadow-lg">
-        <div className="mx-auto max-w-[1280px] flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-4">
-            <LastDropLogo className="w-32 h-auto text-white shrink-0" />
-            <nav className="flex items-center gap-1.5 flex-wrap" aria-label="Lobby navigation">
-              {navTab('play', 'Play')}
-              {navTab('locker', 'Locker')}
-              {navTab('shop', 'Shop')}
-              {navTab('stats', 'Stats')}
-              {navTab('settings', 'Settings')}
-              {navTab('controls', 'Controls')}
-              {navTab('changelog', 'Updates')}
-              {navTab('account', googleUser || db.cur ? 'Account' : 'Log in')}
-            </nav>
-          </div>
+    <div className="fixed inset-0 z-20 flex flex-col justify-between bg-[#0b1322]/45 overflow-hidden">
+      {/* Zombs Royale Style Top Bar */}
+      <header className="relative z-20 w-full bg-[#141e30] border-b-[3px] border-[#090e17] px-4 lg:px-7 py-2 shrink-0">
+        <div className="mx-auto max-w-[1240px] flex items-center justify-between gap-4">
+          {/* Zone 1: Game Brand */}
+          <LastDropLogo className="w-28 h-auto text-white shrink-0" />
 
-          <div className="flex items-center gap-2.5 text-xs font-mono-num">
-            <div className="bg-[#08132b] border border-[#2a52a0] rounded-lg px-3 py-1.5 flex items-center gap-2">
-              <span className="font-bold text-white">{playerName}</span>
-              <span className="text-[#38bdf8] font-bold">{profile.tagId}</span>
-              <span className="text-[#64748b]" aria-hidden="true">·</span>
-              <span className="text-[#ffd24d] font-bold">{profile.coins} Coins</span>
-              <span className="text-[#64748b]" aria-hidden="true">·</span>
-              <span className="text-[#93c5fd]">v{VER}</span>
+          {/* Zone 2: Arcade Navigation Tabs */}
+          <nav className="flex items-center gap-1 lg:gap-1.5 overflow-x-auto" aria-label="Lobby navigation">
+            {navLink('play', 'Play')}
+            {navLink('battlepass', 'Battle Pass')}
+            {navLink('locker', 'Locker')}
+            {navLink('shop', 'Shop')}
+            {navLink('stats', 'Stats')}
+            {navLink('changelog', 'Updates')}
+            {navLink('settings', 'Settings')}
+          </nav>
+
+          {/* Zone 3: Wallet, Account & Sound */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="hidden md:flex items-center gap-2 bg-[#0f1726] border-2 border-[#090e17] rounded-lg px-2.5 py-1 text-xs font-mono-num">
+              <span className="inline-flex items-center gap-1 text-[#ffd24d] font-bold">
+                <CoinSprite className="w-4 h-4" />
+                {profile.coins.toLocaleString()}
+              </span>
+              <span className="w-0.5 h-3.5 bg-[#090e17]" aria-hidden="true" />
+              <span className="inline-flex items-center gap-1 text-[#e879f9] font-bold">
+                <GemSprite className="w-4 h-4" />
+                {(profile.gems || 0).toLocaleString()}
+              </span>
             </div>
-            {!googleUser ? (
-              <button
-                type="button"
-                disabled={authLoading}
-                onClick={() => {
-                  onUiClick();
-                  onGoogleSignIn();
-                }}
-                className="bg-white hover:bg-[#f1f5f9] text-[#0f172a] font-sans font-bold rounded-lg px-3 py-1.5 flex items-center gap-2 cursor-pointer transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
-              >
-                <GoogleIcon />
-                <span>{authLoading ? 'Signing in...' : 'Google Login'}</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  onUiClick();
-                  onSetTab('account');
-                }}
-                className="bg-[#08132b] border border-[#22c55e]/60 hover:border-[#22c55e] rounded-lg px-2.5 py-1.5 text-[#86efac] font-sans font-semibold cursor-pointer transition-colors whitespace-nowrap shrink-0"
-              >
-                Cloud Saved
-              </button>
-            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                onUiClick();
+                onSetTab('account');
+              }}
+              className={`px-3 py-1.5 rounded-lg border-2 border-[#090e17] shadow-[0_3px_0_#090e17] active:translate-y-0.5 text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-all ${
+                tab === 'account'
+                  ? 'bg-[#2563eb] text-white'
+                  : googleUser
+                    ? 'bg-[#166534] text-[#bbf7d0] hover:bg-[#15803d]'
+                    : 'bg-[#24324a] text-white hover:bg-[#2f4263]'
+              }`}
+            >
+              {googleUser ? 'Cloud Account' : db.cur ? 'Profile' : 'Sign In'}
+            </button>
+
             <button
               type="button"
               onClick={() => {
                 onUiClick();
                 onToggleSetting('snd');
               }}
-              className="bg-[#08132b] border border-[#2a52a0] hover:border-[#60a5fa] rounded-lg px-2.5 py-1.5 text-white font-semibold cursor-pointer transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-[#24324a] hover:bg-[#2f4263] border-2 border-[#090e17] shadow-[0_3px_0_#090e17] active:translate-y-0.5 text-xs font-extrabold text-white whitespace-nowrap shrink-0 cursor-pointer transition-all"
             >
-              {db.set.snd ? 'Audio: On' : 'Muted'}
+              {db.set.snd ? 'Sound On' : 'Muted'}
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content Stage */}
-      <main className="flex-1 flex items-center justify-center p-4 lg:p-6">
+      {/* Main Content Stage (Scroll-safe so header & footer are never blocked) */}
+      <main className="relative z-10 flex-1 min-h-0 overflow-y-auto ld-scroll px-4 lg:px-8 py-3 flex justify-center">
         {tab === 'play' && (
-          <div className="w-full max-w-[1260px] grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-            {/* Left Panel: Mode Selector, Rank & Career Summary (ZombsRoyale style) */}
-            <section className="lg:col-span-4 bg-[#0d1e42]/92 border-2 border-[#254992] rounded-2xl p-5 shadow-2xl flex flex-col justify-between gap-4">
-              <div className="flex flex-col gap-4">
+          <div className="my-auto w-full max-w-[1200px] grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+            {/* Left Column: Season 1 Countdown, Level & Career Snapshot */}
+            <section className={`lg:col-span-3 ${FRAME_PANEL} flex flex-col`}>
+              <div className="bg-[#f59e0b] border-b-[3px] border-[#090e17] px-4 py-2 text-center">
+                <div className="text-[11px] font-black uppercase tracking-wider text-[#090e17]">
+                  {countdown.isLive ? 'Season 1 Live Now' : 'Season 1 · Jan 1, 2027'}
+                </div>
+                <div className="font-mono-num text-lg font-black text-[#090e17] leading-tight">
+                  {countdown.days}d : {countdown.hours}h : {countdown.mins}m : {countdown.secs}s
+                </div>
+              </div>
+
+              <div className="p-4 flex flex-col gap-3">
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#93c5fd]">
-                      Game Mode
+                  <div className="flex items-center justify-between text-xs font-bold mb-1">
+                    <span className="text-white">Level {levelInfo.l}</span>
+                    <span className="font-mono-num text-[#7dd3fc]">
+                      {levelInfo.x}/{levelInfo.n} XP
                     </span>
-                    {onlinePlayers !== null && (
-                      <span className="text-[11px] font-mono-num text-[#4ade80] font-semibold">
-                        {onlinePlayers} Online
-                      </span>
-                    )}
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#071229] rounded-xl border border-[#224182]">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onUiClick();
-                        onSetMode(0);
-                      }}
-                      className={`py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
-                        (db.mode | 0) === 0
-                          ? 'bg-[#2563eb] text-white shadow'
-                          : 'text-[#94a3b8] hover:text-white'
-                      }`}
-                    >
-                      Solo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onUiClick();
-                        onSetMode(1);
-                      }}
-                      className={`py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
-                        (db.mode | 0) === 1
-                          ? 'bg-[#b45309] text-[#fef08a] border border-[#fbbf24]/50 shadow'
-                          : 'text-[#94a3b8] hover:text-white'
-                      }`}
-                    >
-                      Arena
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onUiClick();
-                        onSetMode(2);
-                      }}
-                      className={`py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
-                        (db.mode | 0) === 2
-                          ? 'bg-[#0ea5e9] text-white border border-[#7dd3fc]/50 shadow'
-                          : 'text-[#94a3b8] hover:text-white'
-                      }`}
-                    >
-                      Online BR
-                    </button>
+                  <div className="h-3 rounded-md bg-[#0d1422] border-2 border-[#090e17] overflow-hidden">
+                    <div className="h-full bg-[#27c24c]" style={{ width: `${xpPct}%` }} />
                   </div>
                 </div>
 
-                {/* Arena Rank Card */}
-                <div className="bg-[#08132b] border border-[#224182] rounded-xl p-3.5">
-                  <div className="flex items-center justify-between text-xs mb-1.5">
-                    <span className="text-[#93c5fd] font-semibold">Arena Division</span>
-                    <span className="font-bold" style={{ color: rankInfo.c }}>
-                      {rankInfo.n} · {profile.hype || 0} Hype
+                <div>
+                  <div className="flex items-center justify-between text-xs font-bold mb-1">
+                    <span className="text-[#94a3b8]">Arena Rank</span>
+                    <span className="font-mono-num" style={{ color: rankInfo.c }}>
+                      {rankInfo.n} · {profile.hype || 0}
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-2.5 rounded-md bg-[#0d1422] border-2 border-[#090e17] overflow-hidden">
                     <div
                       className="h-full bg-[#38bdf8]"
                       style={{ width: `${Math.round(rankInfo.p)}%` }}
                     />
                   </div>
                 </div>
-
-                {/* Quick Career Totals */}
-                <div className="grid grid-cols-4 gap-2 text-center">
-                  {[
-                    [stats.w, 'Wins'],
-                    [stats.k, 'Kills'],
-                    [(stats.k / Math.max(1, stats.d)).toFixed(1), 'K/D'],
-                    [stats.b ? `#${stats.b}` : '-', 'Best'],
-                  ].map(([v, l]) => (
-                    <div
-                      key={l}
-                      className="bg-[#08132b] border border-[#224182] rounded-xl py-2.5 px-1"
-                    >
-                      <div className="font-mono-num text-base font-bold text-white">{v}</div>
-                      <div className="text-[11px] text-[#93c5fd]">{l}</div>
-                    </div>
-                  ))}
-                </div>
               </div>
 
-              {/* Quick Loadout / Locker Shortcuts */}
-              <div className="bg-[#08132b] border border-[#224182] rounded-xl p-3.5 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-wider text-[#93c5fd] font-bold">
-                    Equipped Loadout
+              <div className="grid grid-cols-2 bg-[#101827] border-t-2 border-[#090e17] divide-x-2 divide-y-2 divide-[#090e17] text-center">
+                {[
+                  [stats.w, 'Wins'],
+                  [stats.k, 'Kills'],
+                  [(stats.k / Math.max(1, stats.d)).toFixed(1), 'K/D'],
+                  [stats.b ? `#${stats.b}` : '-', 'Best'],
+                ].map(([v, l]) => (
+                  <div key={l} className="py-2.5 px-2">
+                    <div className="font-mono-num text-base font-black text-white">{v}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#94a3b8]">
+                      {l}
+                    </div>
                   </div>
-                  <div className="text-xs text-white font-semibold truncate mt-0.5">
-                    {equippedSkin?.name || 'Classic'} · {equippedMusic?.name || 'Sky Drop Synth'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUiClick();
-                    onSetTab('locker');
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-[#1d4ed8] hover:bg-[#2563eb] text-xs font-bold text-white shrink-0 cursor-pointer transition-colors"
-                >
-                  Locker
-                </button>
+                ))}
               </div>
             </section>
 
-            {/* Center Stage: ZombsRoyale Character Showcase Pedestal + PLAY CTA */}
-            <section className="lg:col-span-4 bg-[#0f234c]/92 border-2 border-[#3b82f6]/55 rounded-2xl p-6 shadow-2xl flex flex-col items-center justify-between text-center gap-4">
-              <div className="w-full">
-                <div className="text-2xl font-display font-black uppercase tracking-wider text-white">
-                  {playerName}{' '}
-                  <span className="text-[#38bdf8] font-mono-num text-lg">{profile.tagId}</span>
-                </div>
-                <div className="text-xs font-mono-num text-[#93c5fd] mt-0.5">
-                  Level {levelInfo.l} · {levelInfo.x} / {levelInfo.n} XP · 24-Player Island
-                </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-[#071229] border border-[#224182] overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#38bdf8] to-[#22c55e]"
-                    style={{ width: `${xpPct}%` }}
-                  />
+            {/* Center Stage: Open Zombs Royale Character Pedestal + Mode Selector + PLAY */}
+            <section className="lg:col-span-5 flex flex-col items-center justify-center gap-3.5 text-center">
+              {/* Survivor Loadout Sprite */}
+              <div className="relative flex flex-col items-center">
+                <LoadoutSpriteShowcase
+                  gliderColor={gliderColor}
+                  skinColor={skinColor}
+                  skinId={eq.skin}
+                  backblingId={eq.backbling}
+                  pickaxeId={eq.pickaxe}
+                  size={168}
+                />
+
+                <div className="mt-1 px-4 py-1 rounded-lg bg-[#141e30] border-2 border-[#090e17] shadow-[0_3px_0_#090e17] inline-flex items-baseline gap-2">
+                  <span className="font-display font-black uppercase text-xl tracking-wide text-white">
+                    {playerName}
+                  </span>
+                  <span className="font-mono-num text-xs font-bold text-[#38bdf8]">
+                    {profile.tagId}
+                  </span>
                 </div>
               </div>
 
-              {/* Glowing Pedestal Character Showcase */}
-              <div className="relative flex flex-col items-center justify-center py-2">
-                <div
-                  className="w-44 h-44 rounded-full border-4 border-[#3b82f6]/60 flex items-center justify-center shadow-[0_0_48px_rgba(59,130,246,0.35)]"
-                  style={{
-                    background:
-                      'radial-gradient(circle at 50% 42%, rgba(56,189,248,0.28), rgba(11,23,51,0.94) 72%)',
-                  }}
-                >
-                  <PlayerAvatar
-                    gliderColor={gliderColor}
-                    skinColor={skinColor}
-                    skinId={eq.skin}
-                    backblingId={eq.backbling}
-                    pickaxeId={eq.pickaxe}
-                    size={132}
-                  />
+              {/* Chunky Mode Selector + Play CTA Slab */}
+              <div className="w-full max-w-[380px] flex flex-col gap-2.5">
+                <div className="flex items-center justify-between px-1 text-xs font-bold">
+                  <span className="text-[#cbd5e1] uppercase tracking-wider">Game Mode</span>
+                  {onlinePlayers !== null && (
+                    <span className="font-mono-num text-[#4ade80]">
+                      {onlinePlayers} players online
+                    </span>
+                  )}
                 </div>
-                <div className="mt-2 text-xs text-[#cbd5e1] font-medium">
-                  {(db.mode | 0) === 2
-                    ? 'Online Multiplayer Queue Ready'
-                    : (db.mode | 0) === 1
-                      ? 'Arena Ranked Queue Ready'
-                      : 'Solo Battle Royale Ready'}
-                </div>
-              </div>
 
-              {/* Prominent ZombsRoyale-inspired Green/Gold Play Button */}
-              <div className="w-full flex flex-col gap-2">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 0, label: 'Solo', activeBg: 'bg-[#2563eb]', activeText: 'text-white' },
+                    { id: 1, label: 'Arena', activeBg: 'bg-[#d97706]', activeText: 'text-white' },
+                    { id: 2, label: 'Online BR', activeBg: 'bg-[#0284c7]', activeText: 'text-white' },
+                  ].map((m) => {
+                    const isSelected = (db.mode | 0) === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          onUiClick();
+                          onSetMode(m.id);
+                        }}
+                        className={`py-2.5 px-2 rounded-lg border-2 border-[#090e17] text-xs font-extrabold uppercase tracking-wider whitespace-nowrap cursor-pointer transition-all ${
+                          isSelected
+                            ? `${m.activeBg} ${m.activeText} shadow-[0_3px_0_#090e17] -translate-y-0.5`
+                            : 'bg-[#182338] text-[#cbd5e1] hover:bg-[#22314d] shadow-[0_3px_0_#090e17]'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
                     onUiClick();
                     onPlay();
                   }}
-                  className="w-full py-4 rounded-xl bg-gradient-to-b from-[#22c55e] to-[#15803d] hover:brightness-110 active:scale-[0.99] border-2 border-[#86efac]/60 text-white font-display font-black italic text-4xl tracking-widest shadow-[0_8px_28px_rgba(34,197,94,0.45)] transition-all cursor-pointer"
+                  className="w-full py-3.5 rounded-xl bg-[#27c24c] hover:bg-[#32d659] border-[3px] border-[#090e17] shadow-[0_6px_0_#157a2e] active:translate-y-0.5 active:shadow-[0_3px_0_#157a2e] text-white font-display font-black italic text-4xl tracking-widest drop-shadow-[0_2px_0_#090e17] transition-all cursor-pointer"
                 >
                   PLAY
                 </button>
-                <div className="text-[11px] text-[#93c5fd]">
-                  Press Enter or Space to drop from the plane
-                </div>
               </div>
             </section>
 
-            {/* Right Panel: Named Locations & Arsenal Preview */}
-            <section className="lg:col-span-4 bg-[#0d1e42]/92 border-2 border-[#254992] rounded-2xl p-5 shadow-2xl flex flex-col gap-4 max-h-[500px]">
-              <div className="flex items-center justify-between border-b border-[#224182] pb-2">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-white">
-                  Island Named Locations
-                </h2>
-                <span className="text-[11px] font-mono-num text-[#93c5fd]">
-                  7200 × 7200
+            {/* Right Column: Loadout & 100-Player Island Zones */}
+            <section className={`lg:col-span-4 ${FRAME_PANEL} flex flex-col`}>
+              <div className="bg-[#141e30] border-b-2 border-[#090e17] px-4 py-2.5 flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-white">
+                  Loadout
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUiClick();
+                    onSetTab('locker');
+                  }}
+                  className="px-2.5 py-1 rounded bg-[#2563eb] hover:bg-[#3b82f6] border border-[#090e17] text-[11px] font-bold text-white cursor-pointer"
+                >
+                  Customize
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5 text-xs">
-                {POIS.map((poi) => (
-                  <div
-                    key={poi.name}
-                    className="bg-[#08132b] border border-[#224182] rounded-lg px-2.5 py-2 font-semibold text-[#e2e8f0] truncate"
-                  >
-                    {poi.name}
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-[#224182] pt-3 flex-1 overflow-y-auto ld-scroll pr-1">
-                <div className="text-xs font-bold uppercase tracking-wider text-[#93c5fd] mb-2">
-                  Featured Weapons
+              <div className="p-4 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                <div className="truncate">
+                  <span className="text-[#94a3b8]">Skin: </span>
+                  <strong className="text-white">{equippedSkin?.name || 'Classic'}</strong>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {WP.filter((w) => w.id > 0 && !w.usable).map((w) => (
-                    <div
-                      key={w.id}
-                      className="bg-[#08132b] border border-[#224182] rounded-lg p-2 flex items-center gap-2"
-                    >
-                      <WeaponIcon weaponId={w.id} className="w-9 h-6 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold truncate" style={{ color: w.color }}>
-                          {w.name}
-                        </div>
-                        <div className="text-[10px] font-mono-num text-[#94a3b8]">
-                          {w.id === 10
-                            ? 'Push Blast'
-                            : w.id === 11
-                              ? 'Pull Vortex'
-                              : w.throwable
-                                ? '68 Blast'
-                                : w.sniper
-                                  ? 'Wide FOV'
-                                  : `${w.damage * Math.max(1, w.pellets)} DMG`}
-                        </div>
-                      </div>
+                <div className="truncate">
+                  <span className="text-[#94a3b8]">Pickaxe: </span>
+                  <strong className="text-white">{equippedPickaxe?.name || 'Bare Fists'}</strong>
+                </div>
+                <div className="truncate">
+                  <span className="text-[#94a3b8]">Back: </span>
+                  <strong className="text-white">{equippedBackBling?.name || 'None'}</strong>
+                </div>
+                <div className="truncate">
+                  <span className="text-[#94a3b8]">Glider: </span>
+                  <strong className="text-white">
+                    {profile.eq >= 0 && SKINS[profile.eq]
+                      ? SKINS[profile.eq].n
+                      : equippedGlider?.name || 'Cobalt Wing'}
+                  </strong>
+                </div>
+                <div className="col-span-2 truncate pt-1 border-t border-[#090e17]">
+                  <span className="text-[#94a3b8]">Music: </span>
+                  <strong className="text-white">
+                    {db.set.lobbyMusic ? equippedMusic?.name || 'Sky Drop Synth' : 'Off'}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="bg-[#101827] border-t-2 border-[#090e17] px-4 py-3">
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-extrabold uppercase tracking-wider text-[#cbd5e1]">
+                    Drop Zones
+                  </span>
+                  <span className="font-mono-num font-bold text-[#fbbf24]">
+                    {TOTAL_PLAYERS} Players
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#e2e8f0]">
+                  {POIS.map((poi) => (
+                    <div key={poi.name} className="truncate font-medium">
+                      · {poi.name}
                     </div>
                   ))}
                 </div>
@@ -506,18 +647,90 @@ export function TitleOverlay({
           </div>
         )}
 
-        {/* Dedicated LOCKER Tab (Skins, Pickaxes, Back Blings, Gliders, Lobby Music) */}
-        {tab === 'locker' && (
-          <section className="w-full max-w-[1160px] bg-[#0d1e42]/95 border-2 border-[#254992] rounded-2xl p-6 shadow-2xl flex flex-col gap-5 max-h-[600px]">
-            <div className="flex items-center justify-between gap-4 flex-wrap border-b border-[#224182] pb-3">
-              <div>
-                <h1 className="text-2xl font-display font-black uppercase tracking-wider text-white">
-                  Locker
+        {/* SECRETIVE BATTLE PASS Tab */}
+        {tab === 'battlepass' && (
+          <section className={`my-auto w-full max-w-[1060px] ${FRAME_PANEL} flex flex-col`}>
+            <div className="bg-[#141e30] border-b-[3px] border-[#090e17] px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-baseline gap-3">
+                <h1 className="text-2xl font-display font-black italic uppercase tracking-wider text-white">
+                  Battle Pass
                 </h1>
-                <p className="text-xs text-[#93c5fd]">
-                  Equip your Skins, Pickaxes, Back Blings, Gliders, and Lobby Music
+                <span className="text-xs font-mono-num font-bold text-[#94a3b8]">
+                  Season 1 · Classified
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="font-mono-num text-xs font-bold text-[#fbbf24]">
+                  {countdown.isLive
+                    ? 'Unlocking...'
+                    : `${countdown.days}d : ${countdown.hours}h : ${countdown.mins}m : ${countdown.secs}s`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUiClick();
+                    onSetTab('play');
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-[#24324a] hover:bg-[#31456b] border-2 border-[#090e17] shadow-[0_2px_0_#090e17] text-xs font-extrabold text-white whitespace-nowrap cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 bg-[#0b101b] flex flex-col items-center gap-6 text-center">
+              <div className="flex flex-col items-center gap-1.5 max-w-lg">
+                <h2 className="font-display font-black italic uppercase text-4xl sm:text-5xl tracking-widest text-white drop-shadow-[0_3px_0_#000000]">
+                  SOMETHING IS COMING
+                </h2>
+                <p className="text-xs sm:text-sm font-semibold text-[#64748b]">
+                  Season 1 Battle Pass rewards remain sealed until January 1, 2027.
                 </p>
               </div>
+
+              <div className="w-full grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+                {(
+                  [
+                    { tier: 'Tier 1', kind: 'outfit' },
+                    { tier: 'Tier 25', kind: 'pickaxe' },
+                    { tier: 'Tier 50', kind: 'backbling' },
+                    { tier: 'Tier 75', kind: 'glider' },
+                    { tier: 'Tier 100', kind: 'mythic' },
+                  ] as const
+                ).map((slot) => (
+                  <div
+                    key={slot.tier}
+                    className="bg-[#0e1524] border-2 border-[#04060b] rounded-xl p-3.5 flex flex-col items-center gap-2"
+                  >
+                    <div className="w-full flex items-center justify-between text-[11px] font-mono-num font-bold text-[#475569]">
+                      <span>{slot.tier}</span>
+                      <span>LOCKED</span>
+                    </div>
+                    <div className="w-full h-28 rounded-lg bg-[#090d16] border-2 border-[#04060b] flex items-center justify-center">
+                      <ShadowRewardSprite kind={slot.kind} />
+                    </div>
+                    <div className="text-sm font-display font-black tracking-widest text-[#334155]">
+                      ???
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-xs font-mono-num uppercase tracking-[0.25em] text-[#475569]">
+                Something is coming
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* LOCKER Tab */}
+        {tab === 'locker' && (
+          <section className={`my-auto w-full max-w-[1160px] ${FRAME_PANEL} flex flex-col`}>
+            <div className="bg-[#141e30] border-b-[3px] border-[#090e17] px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
+              <h1 className="text-2xl font-display font-black italic uppercase tracking-wider text-white">
+                Locker
+              </h1>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {LOCKER_CATEGORIES.map((cat) => (
                   <button
@@ -527,10 +740,10 @@ export function TitleOverlay({
                       onUiClick();
                       setLockerCat(cat.id);
                     }}
-                    className={`px-3.5 py-2 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                    className={`px-3.5 py-1.5 rounded-lg border-2 border-[#090e17] text-xs font-extrabold whitespace-nowrap cursor-pointer transition-colors ${
                       lockerCat === cat.id
-                        ? 'bg-[#2563eb] text-white'
-                        : 'bg-[#08132b] text-[#cbd5e1] border border-[#224182] hover:text-white'
+                        ? 'bg-[#2563eb] text-white shadow-[0_2px_0_#090e17]'
+                        : 'bg-[#202d47] text-[#cbd5e1] hover:text-white'
                     }`}
                   >
                     {cat.label}
@@ -539,122 +752,326 @@ export function TitleOverlay({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 overflow-hidden flex-1">
-              {/* Live Character Loadout Preview */}
-              <div className="lg:col-span-4 bg-[#08132b] border border-[#224182] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-3">
-                <div
-                  className="w-40 h-40 rounded-full border-2 border-[#3b82f6]/50 flex items-center justify-center"
-                  style={{
-                    background:
-                      'radial-gradient(circle at 50% 42%, rgba(56,189,248,0.22), rgba(7,18,41,0.96) 74%)',
-                  }}
-                >
-                  <PlayerAvatar
-                    gliderColor={gliderColor}
-                    skinColor={skinColor}
-                    skinId={eq.skin}
-                    backblingId={eq.backbling}
-                    pickaxeId={eq.pickaxe}
-                    size={120}
-                  />
-                </div>
-                <div className="text-xs text-[#cbd5e1] space-y-1 w-full text-left border-t border-[#224182] pt-3">
-                  <div>
-                    <span className="text-[#93c5fd]">Skin:</span>{' '}
-                    <span className="font-bold text-white">{equippedSkin?.name || 'Classic Survivor'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[#93c5fd]">Pickaxe:</span>{' '}
-                    <span className="font-bold text-white">
-                      {COSMETIC_CATALOG.find((c) => c.id === eq.pickaxe)?.name || 'Bare Fists'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[#93c5fd]">Back Bling:</span>{' '}
-                    <span className="font-bold text-white">
-                      {COSMETIC_CATALOG.find((c) => c.id === eq.backbling)?.name || 'None'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[#93c5fd]">Glider:</span>{' '}
-                    <span className="font-bold text-white">
-                      {profile.eq >= 0 && SKINS[profile.eq]
-                        ? `${SKINS[profile.eq].n} (Crate)`
-                        : equippedGlider?.name || 'Cobalt Wing'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[#93c5fd]">Lobby Music:</span>{' '}
-                    <span className="font-bold text-white">
-                      {db.set.lobbyMusic ? equippedMusic?.name || 'Sky Drop Synth' : 'Disabled'}
-                    </span>
+            <div className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+              {/* Live Loadout Preview */}
+              <div className="lg:col-span-3 bg-[#101827] border-2 border-[#090e17] rounded-xl p-4 flex flex-col items-center text-center gap-2.5">
+                <LoadoutSpriteShowcase
+                  gliderColor={gliderColor}
+                  skinColor={skinColor}
+                  skinId={eq.skin}
+                  backblingId={eq.backbling}
+                  pickaxeId={eq.pickaxe}
+                  size={136}
+                />
+                <div className="text-xs text-[#cbd5e1] w-full text-left space-y-1 pt-2 border-t-2 border-[#090e17]">
+                  <div className="truncate"><span className="text-[#94a3b8]">Skin:</span> <strong className="text-white">{equippedSkin?.name}</strong></div>
+                  <div className="truncate"><span className="text-[#94a3b8]">Pickaxe:</span> <strong className="text-white">{equippedPickaxe?.name}</strong></div>
+                  <div className="truncate"><span className="text-[#94a3b8]">Back:</span> <strong className="text-white">{equippedBackBling?.name}</strong></div>
+                  <div className="truncate">
+                    <span className="text-[#94a3b8]">Glider:</span>{' '}
+                    <strong className="text-white">
+                      {profile.eq >= 0 && SKINS[profile.eq] ? SKINS[profile.eq].n : equippedGlider?.name}
+                    </strong>
                   </div>
                 </div>
+                {lockerCat === 'music' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUiClick();
+                      onToggleSetting('lobbyMusic');
+                    }}
+                    className={`w-full py-2 rounded-lg border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-xs font-extrabold cursor-pointer transition-colors ${
+                      db.set.lobbyMusic ? 'bg-[#27c24c] text-white' : 'bg-[#24324a] text-[#cbd5e1]'
+                    }`}
+                  >
+                    {db.set.lobbyMusic ? 'Lobby Music: On' : 'Lobby Music: Off'}
+                  </button>
+                )}
               </div>
 
-              {/* Owned Items Grid */}
-              <div className="lg:col-span-8 overflow-y-auto ld-scroll pr-1 flex flex-col gap-3">
-                {lockerCat === 'music' && (
-                  <div className="bg-[#08132b] border border-[#224182] rounded-xl p-3.5 flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-bold text-white">Lobby Music Playback</div>
-                      <div className="text-xs text-[#93c5fd]">
-                        Toggle background music while browsing the lobby and locker
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onUiClick();
-                        onToggleSetting('lobbyMusic');
-                      }}
-                      className={`px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                        db.set.lobbyMusic
-                          ? 'bg-[#22c55e] text-white'
-                          : 'bg-white/10 text-[#cbd5e1]'
+              <div className="lg:col-span-9 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {lockerItems.map((item) => {
+                  const isOwned = ownedSet.has(item.id) || item.price === 0;
+                  const isEquipped =
+                    lockerCat === 'glider'
+                      ? profile.eq < 0 && eq.glider === item.id
+                      : eq[lockerCat] === item.id;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`bg-[#101827] border-2 border-[#090e17] rounded-xl p-2.5 flex flex-col gap-2 ${
+                        !isOwned ? 'opacity-70' : ''
                       }`}
                     >
-                      {db.set.lobbyMusic ? 'Music: On' : 'Music: Off'}
-                    </button>
-                  </div>
-                )}
+                      <CosmeticVisual item={item} heightClass="h-20" />
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="text-xs font-bold text-white truncate">{item.name}</span>
+                        <span
+                          className="text-[10px] font-bold shrink-0"
+                          style={{ color: RARITY_COLORS[item.rarity] }}
+                        >
+                          {RARITY_NAMES[item.rarity]}
+                        </span>
+                      </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {COSMETIC_CATALOG.filter((item) => item.category === lockerCat).map((item) => {
-                    const isOwned = ownedSet.has(item.id) || item.price === 0;
+                      {isOwned ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUiClick();
+                            if (lockerCat === 'glider') onEquipSkin(-1);
+                            onEquipCosmetic(lockerCat, item.id);
+                          }}
+                          className={`w-full py-1.5 rounded-lg border-2 border-[#090e17] text-xs font-extrabold cursor-pointer transition-colors ${
+                            isEquipped
+                              ? 'bg-[#38bdf8] text-[#090e17]'
+                              : 'bg-[#2563eb] hover:bg-[#3b82f6] text-white shadow-[0_2px_0_#090e17]'
+                          }`}
+                        >
+                          {isEquipped ? 'Equipped' : 'Equip'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUiClick();
+                            onSetTab('shop');
+                            setShopCat(lockerCat);
+                          }}
+                          className="w-full py-1.5 rounded-lg border-2 border-[#090e17] bg-[#24324a] hover:bg-[#31456b] text-xs font-extrabold text-[#ffd24d] inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <span>Shop</span>
+                          <CoinSprite className="w-3.5 h-3.5" />
+                          <span>{item.price}</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {lockerCat === 'glider' &&
+                  (profile.sk || []).map((skinIdx) => {
+                    const skin = SKINS[skinIdx];
+                    if (!skin) return null;
+                    const equipped = profile.eq === skinIdx;
+                    return (
+                      <div
+                        key={`crate_${skinIdx}`}
+                        className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-2.5 flex flex-col gap-2"
+                      >
+                        <CrateGliderVisual color={skin.c} heightClass="h-20" />
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-xs font-bold text-white truncate">
+                            {skin.n}
+                          </span>
+                          <span
+                            className="text-[10px] font-bold shrink-0"
+                            style={{ color: RARITY_COLORS[skin.r] }}
+                          >
+                            {RARITY_NAMES[skin.r]}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUiClick();
+                            onEquipSkin(skinIdx);
+                          }}
+                          className={`w-full py-1.5 rounded-lg border-2 border-[#090e17] text-xs font-extrabold cursor-pointer transition-colors ${
+                            equipped
+                              ? 'bg-[#38bdf8] text-[#090e17]'
+                              : 'bg-[#2563eb] hover:bg-[#3b82f6] text-white shadow-[0_2px_0_#090e17]'
+                          }`}
+                        >
+                          {equipped ? 'Equipped' : 'Equip'}
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ITEM SHOP Tab */}
+        {tab === 'shop' && (
+          <section className={`my-auto w-full max-w-[1160px] ${FRAME_PANEL} flex flex-col`}>
+            <div className="bg-[#141e30] border-b-[3px] border-[#090e17] px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-4 flex-wrap">
+                <h1 className="text-2xl font-display font-black italic uppercase tracking-wider text-white">
+                  Item Shop
+                </h1>
+                <span className="inline-flex items-center gap-1 text-xs font-mono-num text-[#ffd24d] font-bold">
+                  <CoinSprite className="w-4 h-4" />
+                  {profile.coins.toLocaleString()} Coins
+                </span>
+                <span className="inline-flex items-center gap-1 text-xs font-mono-num text-[#e879f9] font-bold">
+                  <GemSprite className="w-4 h-4" />
+                  {(profile.gems || 0).toLocaleString()} Gems
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {LOCKER_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => {
+                      onUiClick();
+                      setShopCat(cat.id);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg border-2 border-[#090e17] text-xs font-extrabold whitespace-nowrap cursor-pointer transition-colors ${
+                      shopCat === cat.id
+                        ? 'bg-[#2563eb] text-white shadow-[0_2px_0_#090e17]'
+                        : 'bg-[#202d47] text-[#cbd5e1] hover:text-white'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUiClick();
+                    setShopCat('crate');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg border-2 border-[#090e17] text-xs font-extrabold whitespace-nowrap cursor-pointer transition-colors ${
+                    shopCat === 'crate'
+                      ? 'bg-[#dc2626] text-white shadow-[0_2px_0_#090e17]'
+                      : 'bg-[#202d47] text-[#fda4af] hover:text-white'
+                  }`}
+                >
+                  Glider Crate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUiClick();
+                    setShopCat('gems');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg border-2 border-[#090e17] text-xs font-extrabold whitespace-nowrap cursor-pointer transition-colors inline-flex items-center gap-1.5 ${
+                    shopCat === 'gems'
+                      ? 'bg-[#9333ea] text-white shadow-[0_2px_0_#090e17]'
+                      : 'bg-[#202d47] text-[#e879f9] hover:text-white'
+                  }`}
+                >
+                  <GemSprite className="w-3.5 h-3.5" />
+                  <span>Buy Gems</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 flex flex-col gap-3.5">
+              {shopNotice && (
+                <div className="bg-[#101827] border-2 border-[#38bdf8] rounded-lg px-4 py-2 text-xs font-bold text-white">
+                  {shopNotice}
+                </div>
+              )}
+
+              {shopCat === 'gems' ? (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2 text-xs text-[#cbd5e1]">
+                    <span>
+                      Gems are used for username renames after your first free change and upcoming Season 1 drops.
+                    </span>
+                    <span className="text-[#94a3b8] shrink-0 font-semibold">Checkout coming soon</span>
+                  </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    {GEM_PACKS.map((pack, idx) => (
+                      <div
+                        key={pack.id}
+                        className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-3 flex flex-col gap-2.5"
+                      >
+                        <GemPackArt pack={pack} index={idx} />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-white truncate">
+                            {pack.name}
+                          </span>
+                          {pack.bonus && (
+                            <span
+                              className="text-[10px] font-extrabold shrink-0"
+                              style={{ color: pack.accent }}
+                            >
+                              {pack.bonus}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-sm font-mono-num font-bold text-[#e879f9]">
+                          <GemSprite className="w-4 h-4" />
+                          <span>{pack.gems.toLocaleString()} Gems</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUiClick();
+                            onSelectGemPack(pack);
+                          }}
+                          className="w-full py-2 rounded-lg bg-[#9333ea] hover:bg-[#a855f7] border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-xs font-extrabold font-mono-num text-white cursor-pointer transition-colors"
+                        >
+                          Buy · {pack.priceLabel}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : shopCat === 'crate' ? (
+                <div className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+                  <div className="flex flex-col gap-2">
+                    <div className="text-xl font-display font-black italic uppercase tracking-wide text-white">
+                      Mystery Glider Crate
+                    </div>
+                    <div className="text-xs text-[#93c5fd]">
+                      Roll a random delta glider wing ·{' '}
+                      {RARITY_NAMES.map((n, i) => `${n} ${RARITY_WEIGHTS[i]}%`).join(' · ')}
+                    </div>
+                    {crateReward && (
+                      <div
+                        className="mt-1 text-sm font-semibold"
+                        dangerouslySetInnerHTML={{ __html: crateReward }}
+                      />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUiClick();
+                      onOpenCrate();
+                    }}
+                    className="px-6 py-3 rounded-lg bg-[#dc2626] hover:bg-[#ef4444] border-2 border-[#090e17] shadow-[0_4px_0_#090e17] text-sm font-extrabold text-white whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <span>Open Crate ·</span>
+                    <CoinSprite className="w-4 h-4" />
+                    <span>150</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
+                  {shopItems.map((item) => {
+                    const isOwned = ownedSet.has(item.id);
                     const isEquipped =
-                      lockerCat === 'glider'
+                      item.category === 'glider'
                         ? profile.eq < 0 && eq.glider === item.id
-                        : eq[lockerCat] === item.id;
+                        : eq[item.category] === item.id;
+                    const canAfford = profile.coins >= item.price;
 
                     return (
                       <div
                         key={item.id}
-                        style={{
-                          borderColor: isEquipped
-                            ? '#38bdf8'
-                            : RARITY_COLORS[item.rarity] || '#254992',
-                        }}
-                        className={`bg-[#08132b] border-2 rounded-xl p-3 flex flex-col gap-2.5 ${
-                          !isOwned ? 'opacity-65' : ''
-                        }`}
+                        className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-3 flex flex-col gap-2.5"
                       >
-                        <CosmeticVisual key={item.id} item={item} />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-bold text-white truncate">
-                              {item.name}
-                            </span>
-                            <span
-                              className="text-[10px] font-bold uppercase"
-                              style={{ color: RARITY_COLORS[item.rarity] }}
-                            >
-                              {RARITY_NAMES[item.rarity]}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-[#94a3b8] mt-0.5 line-clamp-2">
-                            {item.description}
-                          </p>
+                        <CosmeticVisual item={item} heightClass="h-24" />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-white truncate">
+                            {item.name}
+                          </span>
+                          <span
+                            className="text-[10px] font-bold shrink-0"
+                            style={{ color: RARITY_COLORS[item.rarity] }}
+                          >
+                            {RARITY_NAMES[item.rarity]}
+                          </span>
                         </div>
 
                         {isOwned ? (
@@ -662,15 +1079,13 @@ export function TitleOverlay({
                             type="button"
                             onClick={() => {
                               onUiClick();
-                              if (lockerCat === 'glider') {
-                                onEquipSkin(-1);
-                              }
-                              onEquipCosmetic(lockerCat, item.id);
+                              if (item.category === 'glider') onEquipSkin(-1);
+                              onEquipCosmetic(item.category, item.id);
                             }}
-                            className={`w-full py-2 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                            className={`w-full py-2 rounded-lg border-2 border-[#090e17] text-xs font-extrabold cursor-pointer transition-colors ${
                               isEquipped
-                                ? 'bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/60'
-                                : 'bg-[#2563eb] hover:bg-[#3b82f6] text-white'
+                                ? 'bg-[#38bdf8] text-[#090e17]'
+                                : 'bg-[#2563eb] hover:bg-[#3b82f6] text-white shadow-[0_2px_0_#090e17]'
                             }`}
                           >
                             {isEquipped ? 'Equipped' : 'Equip'}
@@ -680,434 +1095,342 @@ export function TitleOverlay({
                             type="button"
                             onClick={() => {
                               onUiClick();
-                              onSetTab('shop');
-                              setShopFilter(lockerCat);
+                              onBuyCosmetic(item);
                             }}
-                            className="w-full py-2 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-bold text-[#ffd24d] cursor-pointer transition-colors"
+                            className={`w-full py-2 rounded-lg border-2 border-[#090e17] text-xs font-extrabold font-mono-num inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                              canAfford
+                                ? 'bg-[#27c24c] hover:bg-[#32d659] text-white shadow-[0_3px_0_#157a2e]'
+                                : 'bg-[#24324a] text-[#94a3b8] hover:bg-[#2d3e5c]'
+                            }`}
                           >
-                            Unlock in Shop ({item.price})
+                            <span>Buy ·</span>
+                            <CoinSprite className="w-4 h-4" />
+                            <span>{item.price}</span>
                           </button>
                         )}
                       </div>
                     );
                   })}
-
-                  {/* Bonus Crate Gliders unlocked via 150-coin Crate */}
-                  {lockerCat === 'glider' &&
-                    (profile.sk || []).map((skinIdx) => {
-                      const skin = SKINS[skinIdx];
-                      if (!skin) return null;
-                      const equipped = profile.eq === skinIdx;
-                      return (
-                        <div
-                          key={`crate_${skinIdx}`}
-                          style={{ borderColor: equipped ? '#38bdf8' : RARITY_COLORS[skin.r] }}
-                          className="bg-[#08132b] border-2 rounded-xl p-3 flex flex-col gap-2.5"
-                        >
-                          <div
-                            className="w-full h-28 rounded-lg border border-white/10 flex items-center justify-center"
-                            style={{
-                              background: `radial-gradient(circle, ${skin.c}44, #071229 75%)`,
-                            }}
-                          >
-                            <PlayerAvatar gliderColor={skin.c} skinColor={skinColor} size={64} />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-bold text-white truncate">
-                                {skin.n} Glider
-                              </span>
-                              <span
-                                className="text-[10px] font-bold uppercase"
-                                style={{ color: RARITY_COLORS[skin.r] }}
-                              >
-                                {RARITY_NAMES[skin.r]}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-[#94a3b8] mt-0.5">
-                              Crate-unlocked delta glider color.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onUiClick();
-                              onEquipSkin(skinIdx);
-                            }}
-                            className={`w-full py-2 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                              equipped
-                                ? 'bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/60'
-                                : 'bg-[#2563eb] hover:bg-[#3b82f6] text-white'
-                            }`}
-                          >
-                            {equipped ? 'Equipped' : 'Equip'}
-                          </button>
-                        </div>
-                      );
-                    })}
                 </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Dedicated ITEM SHOP Tab with actual artwork for Skins, Pickaxes, Back Blings, Gliders & Music */}
-        {tab === 'shop' && (
-          <section className="w-full max-w-[1160px] bg-[#0d1e42]/95 border-2 border-[#254992] rounded-2xl p-6 shadow-2xl flex flex-col gap-4 max-h-[600px]">
-            <div className="flex items-center justify-between gap-4 flex-wrap border-b border-[#224182] pb-3">
-              <div>
-                <h1 className="text-2xl font-display font-black uppercase tracking-wider text-white">
-                  Item Shop
-                </h1>
-                <p className="text-xs text-[#93c5fd]">
-                  Skins, Pickaxes, Back Blings, Gliders, and Lobby Music · Balance:{' '}
-                  <span className="text-[#ffd24d] font-bold font-mono-num">
-                    {profile.coins} coins
-                  </span>
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUiClick();
-                    setShopFilter('all');
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
-                    shopFilter === 'all'
-                      ? 'bg-[#2563eb] text-white'
-                      : 'bg-[#08132b] text-[#cbd5e1] border border-[#224182]'
-                  }`}
-                >
-                  All
-                </button>
-                {LOCKER_CATEGORIES.map((cat) => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => {
-                      onUiClick();
-                      setShopFilter(cat.id);
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
-                      shopFilter === cat.id
-                        ? 'bg-[#2563eb] text-white'
-                        : 'bg-[#08132b] text-[#cbd5e1] border border-[#224182]'
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {shopNotice && (
-              <div className="bg-[#08132b] border border-[#38bdf8]/50 rounded-xl px-4 py-2.5 text-xs font-semibold text-white">
-                {shopNotice}
-              </div>
-            )}
-
-            <div className="overflow-y-auto ld-scroll pr-1 flex-1 flex flex-col gap-4">
-              {/* Featured Crate Row */}
-              <div className="bg-[#08132b] border border-[#224182] rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-bold text-white">Mystery Glider Crate</div>
-                  <div className="text-xs text-[#93c5fd] mt-0.5">
-                    {RARITY_NAMES.map((n, i) => `${n} ${RARITY_WEIGHTS[i]}%`).join(' · ')}
-                  </div>
-                  {crateReward && (
-                    <div
-                      className="mt-2 text-xs font-semibold"
-                      dangerouslySetInnerHTML={{ __html: crateReward }}
-                    />
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUiClick();
-                    onOpenCrate();
-                  }}
-                  className="px-5 py-2.5 rounded-lg bg-[#e8365d] hover:bg-[#f0476c] text-xs font-bold text-white shrink-0 cursor-pointer transition-colors"
-                >
-                  Open Crate (150 Coins)
-                </button>
-              </div>
-
-              {/* Shop Cosmetic Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {COSMETIC_CATALOG.filter(
-                  (item) =>
-                    item.price > 0 &&
-                    (shopFilter === 'all' || item.category === shopFilter)
-                ).map((item) => {
-                  const isOwned = ownedSet.has(item.id);
-                  const isEquipped =
-                    item.category === 'glider'
-                      ? profile.eq < 0 && eq.glider === item.id
-                      : eq[item.category] === item.id;
-                  const canAfford = profile.coins >= item.price;
-
-                  return (
-                    <div
-                      key={item.id}
-                      style={{ borderColor: RARITY_COLORS[item.rarity] || '#254992' }}
-                      className="bg-[#08132b] border-2 rounded-xl p-3 flex flex-col gap-2.5"
-                    >
-                      <CosmeticVisual key={item.id} item={item} />
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-bold text-white truncate">
-                            {item.name}
-                          </span>
-                          <span
-                            className="text-[10px] font-bold uppercase shrink-0"
-                            style={{ color: RARITY_COLORS[item.rarity] }}
-                          >
-                            {item.category}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-[#94a3b8] mt-0.5 line-clamp-2">
-                          {item.description}
-                        </p>
-                      </div>
-
-                      {isOwned ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onUiClick();
-                            if (item.category === 'glider') onEquipSkin(-1);
-                            onEquipCosmetic(item.category, item.id);
-                          }}
-                          className={`w-full py-2 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                            isEquipped
-                              ? 'bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/60'
-                              : 'bg-[#2563eb] hover:bg-[#3b82f6] text-white'
-                          }`}
-                        >
-                          {isEquipped ? 'Equipped (Owned)' : 'Equip'}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onUiClick();
-                            onBuyCosmetic(item);
-                          }}
-                          className={`w-full py-2 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                            canAfford
-                              ? 'bg-[#22c55e] hover:bg-[#16a34a] text-white'
-                              : 'bg-white/10 text-[#94a3b8] hover:bg-white/15'
-                          }`}
-                        >
-                          Buy · {item.price} Coins
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              )}
             </div>
           </section>
         )}
 
         {/* STATS Tab */}
         {tab === 'stats' && (
-          <section className="w-full max-w-[900px] bg-[#0d1e42]/95 border-2 border-[#254992] rounded-2xl p-6 shadow-2xl flex flex-col gap-4">
-            <h1 className="text-2xl font-display font-black uppercase tracking-wider text-white border-b border-[#224182] pb-2">
-              Career Stats
-            </h1>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          <section className={`my-auto w-full max-w-[900px] ${FRAME_PANEL} flex flex-col`}>
+            <div className="bg-[#141e30] border-b-[3px] border-[#090e17] px-6 py-3 flex items-center justify-between">
+              <h1 className="text-2xl font-display font-black italic uppercase tracking-wider text-white">
+                Career Stats
+              </h1>
+              <span className="text-xs font-mono-num font-bold text-[#7dd3fc]">
+                {playerName} {profile.tagId}
+              </span>
+            </div>
+            <div className="p-5 grid grid-cols-2 sm:grid-cols-5 bg-[#101827] divide-x-2 divide-y-2 divide-[#090e17] text-center">
               {[
                 [stats.g, 'Matches'],
                 [stats.w, 'Wins'],
-                [stats.g ? `${Math.round((stats.w / stats.g) * 100)}%` : '0%', 'Win rate'],
+                [stats.g ? `${Math.round((stats.w / stats.g) * 100)}%` : '0%', 'Win Rate'],
                 [stats.k, 'Kills'],
                 [(stats.k / Math.max(1, stats.d)).toFixed(2), 'K/D'],
-                [stats.b ? `#${stats.b}` : '-', 'Best place'],
+                [stats.b ? `#${stats.b}` : '-', 'Best Place'],
                 [profile.coins, 'Coins'],
                 [stats.dm || 0, 'Damage'],
-                [rankInfo.n, 'Arena rank'],
+                [rankInfo.n, 'Arena Rank'],
                 [profile.hype || 0, 'Hype'],
               ].map(([val, label]) => (
-                <div
-                  key={label}
-                  className="bg-[#08132b] border border-[#224182] rounded-xl p-3.5"
-                >
-                  <div className="font-mono-num text-xl font-bold text-white">{val}</div>
-                  <div className="text-xs text-[#93c5fd] mt-0.5">{label}</div>
+                <div key={label} className="p-4">
+                  <div className="font-mono-num text-xl font-black text-white">{val}</div>
+                  <div className="text-xs font-bold text-[#94a3b8] mt-0.5">{label}</div>
                 </div>
               ))}
             </div>
-            {!db.cur && (
-              <div className="text-xs text-[#93c5fd] bg-[#08132b] border border-[#224182] rounded-xl p-3">
-                Log in on the Account tab to save your stats, coins, and locker cosmetics in this browser.
+          </section>
+        )}
+
+        {/* UPDATES / VERSION LIST Tab */}
+        {tab === 'changelog' && activeChangelogEntry && (
+          <section className={`my-auto w-full max-w-[1040px] ${FRAME_PANEL} flex flex-col`}>
+            <div className="bg-[#141e30] border-b-[3px] border-[#090e17] px-5 py-3 flex items-center justify-between gap-4">
+              <div className="flex items-baseline gap-3">
+                <h1 className="text-2xl font-display font-black italic uppercase tracking-wider text-white">
+                  Version Updates
+                </h1>
+                <span className="text-xs font-mono-num text-[#38bdf8] font-bold">
+                  Current v{VER}
+                </span>
               </div>
-            )}
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-[#94a3b8] hidden sm:inline">
+                  {CHANGELOG.length} releases
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUiClick();
+                    onSetTab('play');
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-[#24324a] hover:bg-[#31456b] border-2 border-[#090e17] shadow-[0_2px_0_#090e17] text-xs font-extrabold text-white whitespace-nowrap cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+              <div className="lg:col-span-5 flex flex-col gap-1 max-h-[360px] overflow-y-auto ld-scroll pr-1">
+                {CHANGELOG.map((entry, idx) => {
+                  const selected = entry.v === activeChangelogEntry.v;
+                  return (
+                    <button
+                      key={entry.v}
+                      type="button"
+                      onClick={() => {
+                        onUiClick();
+                        setSelectedVersion(entry.v);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 rounded-lg border-2 transition-colors cursor-pointer shrink-0 flex items-center justify-between gap-2 ${
+                        selected
+                          ? 'bg-[#2563eb] border-[#090e17] text-white'
+                          : 'bg-[#101827] border-[#090e17] text-[#cbd5e1] hover:bg-[#1c2942] hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`font-mono-num text-xs font-bold shrink-0 ${
+                            selected ? 'text-[#fef08a]' : 'text-[#38bdf8]'
+                          }`}
+                        >
+                          v{entry.v}
+                        </span>
+                        <span className="text-xs font-semibold truncate">
+                          {entry.title}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono-num shrink-0">
+                        {idx === 0 ? (
+                          <span className="font-bold uppercase tracking-wider text-[#4ade80]">
+                            Latest
+                          </span>
+                        ) : (
+                          entry.d
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="lg:col-span-7 flex flex-col justify-between gap-3">
+                <div className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-5 flex-1 flex flex-col justify-between gap-4">
+                  <div>
+                    <div className="flex items-center justify-between gap-3 pb-3 border-b-2 border-[#090e17]">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono-num text-sm font-black text-[#38bdf8]">
+                          v{activeChangelogEntry.v}
+                        </span>
+                        <span className="text-base font-bold text-white">
+                          {activeChangelogEntry.title}
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono-num text-[#93c5fd] shrink-0">
+                        {activeChangelogEntry.d}
+                      </span>
+                    </div>
+
+                    <ul className="mt-3.5 pl-5 list-disc text-sm text-[#e2e8f0] space-y-2 leading-relaxed">
+                      {activeChangelogEntry.n.map((note, idx) => (
+                        <li key={idx}>{note}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="pt-3 border-t-2 border-[#090e17]">
+                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-[#94a3b8] mb-2">
+                      Weapon Rarity Damage Scaling
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                      {([0, 1, 2, 3, 4, 5] as RarityTier[]).map((tier) => (
+                        <div
+                          key={tier}
+                          className="bg-[#182338] border border-[#090e17] rounded-lg px-2 py-1.5 flex items-center justify-between text-xs"
+                        >
+                          <span className="font-bold" style={{ color: RARITY_TIERS[tier].color }}>
+                            {RARITY_TIERS[tier].name}
+                          </span>
+                          <span className="font-mono-num text-[#cbd5e1]">
+                            +{Math.round((RARITY_TIERS[tier].dmgMult - 1) * 100)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
         )}
 
         {/* SETTINGS Tab */}
-        {tab === 'settings' && (
-          <section className="w-full max-w-[680px] bg-[#0d1e42]/95 border-2 border-[#254992] rounded-2xl p-6 shadow-2xl flex flex-col gap-3">
-            <h1 className="text-2xl font-display font-black uppercase tracking-wider text-white border-b border-[#224182] pb-2">
-              Settings
-            </h1>
-            <div className="flex flex-col divide-y divide-[#224182]">
-              {(
-                [
-                  ['shake', 'Screen shake'],
-                  ['num', 'Damage numbers'],
-                  ['part', 'Hit particles'],
-                  ['snd', 'Sound effects'],
-                  ['lobbyMusic', 'Lobby music'],
-                ] as const
-              ).map(([key, label]) => (
-                <label
-                  key={key}
-                  className="flex items-center justify-between py-3 text-sm text-[#e2e8f0] cursor-pointer"
-                >
-                  <span>{label}</span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(db.set[key])}
-                    onChange={() => {
+        {(tab === 'settings' || tab === 'controls') && (
+          <section className={`my-auto w-full max-w-[820px] ${FRAME_PANEL} flex flex-col`}>
+            <div className="bg-[#141e30] border-b-[3px] border-[#090e17] px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+              <h1 className="text-2xl font-display font-black italic uppercase tracking-wider text-white">
+                Settings
+              </h1>
+              <div className="flex items-center gap-1.5">
+                {(
+                  [
+                    ['general', 'Preferences'],
+                    ['controls', 'Controls'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
                       onUiClick();
-                      onToggleSetting(key);
+                      setSettingsSub(id);
+                      if (tab !== 'settings') onSetTab('settings');
                     }}
-                    className="w-4 h-4 accent-[#22c55e] cursor-pointer"
-                  />
-                </label>
-              ))}
-
-              <label className="flex items-center justify-between py-3 text-sm text-[#e2e8f0]">
-                <span>Master volume</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={db.set.vol}
-                  onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-                  className="w-40 accent-[#22c55e] cursor-pointer"
-                />
-              </label>
-            </div>
-          </section>
-        )}
-
-        {/* CONTROLS Tab */}
-        {tab === 'controls' && (
-          <section className="w-full max-w-[680px] bg-[#0d1e42]/95 border-2 border-[#254992] rounded-2xl p-6 shadow-2xl flex flex-col gap-3 max-h-[580px]">
-            <h1 className="text-2xl font-display font-black uppercase tracking-wider text-white border-b border-[#224182] pb-2">
-              Controls & Keybinds
-            </h1>
-            <div className="overflow-y-auto ld-scroll pr-1 divide-y divide-[#224182]">
-              {KEYBIND_LABELS.map(([action, label]) => {
-                const isListening = listeningKey === action;
-                return (
-                  <div
-                    key={action}
-                    className="flex items-center justify-between py-2 text-sm text-[#e2e8f0]"
+                    className={`px-3.5 py-1.5 rounded-lg border-2 border-[#090e17] text-xs font-extrabold whitespace-nowrap cursor-pointer transition-colors ${
+                      effectiveSettingsSub === id
+                        ? 'bg-[#2563eb] text-white shadow-[0_2px_0_#090e17]'
+                        : 'bg-[#202d47] text-[#cbd5e1] hover:text-white'
+                    }`}
                   >
-                    <span>{label}</span>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-5">
+              {effectiveSettingsSub === 'general' && (
+                <div className="flex flex-col divide-y-2 divide-[#090e17] bg-[#101827] border-2 border-[#090e17] rounded-xl px-4">
+                  {(
+                    [
+                      ['shake', 'Screen shake'],
+                      ['num', 'Damage numbers'],
+                      ['part', 'Hit particles'],
+                      ['snd', 'Sound effects'],
+                      ['lobbyMusic', 'Lobby music'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      className="flex items-center justify-between py-3 text-sm font-semibold text-[#e2e8f0] cursor-pointer"
+                    >
+                      <span>{label}</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(db.set[key])}
+                        onChange={() => {
+                          onUiClick();
+                          onToggleSetting(key);
+                        }}
+                        className="w-4 h-4 accent-[#27c24c] cursor-pointer"
+                      />
+                    </label>
+                  ))}
+                  <label className="flex items-center justify-between py-3 text-sm font-semibold text-[#e2e8f0]">
+                    <span>Master volume</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={db.set.vol}
+                      onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                      className="w-40 accent-[#27c24c] cursor-pointer"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {effectiveSettingsSub === 'controls' && (
+                <div className="flex flex-col gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {KEYBIND_LABELS.map(([action, label]) => {
+                      const isListening = listeningKey === action;
+                      return (
+                        <div
+                          key={action}
+                          className="bg-[#101827] border-2 border-[#090e17] rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-xs font-semibold text-[#e2e8f0]"
+                        >
+                          <span className="truncate">{label}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onUiClick();
+                              onStartRebind(action);
+                            }}
+                            className={`w-20 py-1 rounded border border-[#090e17] text-[11px] font-mono-num font-bold uppercase shrink-0 cursor-pointer transition-colors ${
+                              isListening
+                                ? 'bg-[#2563eb] text-white'
+                                : 'bg-[#24324a] text-white hover:bg-[#31456b]'
+                            }`}
+                          >
+                            {isListening ? '...' : db.kb[action] || ''}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end">
                     <button
                       type="button"
                       onClick={() => {
                         onUiClick();
-                        onStartRebind(action);
+                        onResetKeybinds();
                       }}
-                      className={`w-28 py-1.5 rounded-lg border text-xs font-mono-num font-bold uppercase cursor-pointer transition-colors ${
-                        isListening
-                          ? 'border-[#38bdf8] bg-[#2563eb]/35 text-white'
-                          : 'border-[#254992] bg-[#08132b] text-[#e2e8f0] hover:border-[#60a5fa]'
-                      }`}
+                      className="px-4 py-2 rounded-lg bg-[#24324a] hover:bg-[#31456b] border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-xs font-extrabold text-white cursor-pointer"
                     >
-                      {isListening ? 'Press key...' : db.kb[action] || ''}
+                      Reset defaults
                     </button>
                   </div>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                onUiClick();
-                onResetKeybinds();
-              }}
-              className="mt-1 py-2.5 rounded-xl border border-[#254992] bg-[#08132b] hover:border-[#60a5fa] text-xs font-semibold text-[#e2e8f0] cursor-pointer"
-            >
-              Reset defaults
-            </button>
-          </section>
-        )}
-
-        {/* UPDATES / CHANGELOG Tab */}
-        {tab === 'changelog' && (
-          <section className="w-full max-w-[780px] bg-[#0d1e42]/95 border-2 border-[#254992] rounded-2xl p-6 shadow-2xl flex flex-col gap-4 max-h-[580px] overflow-y-auto ld-scroll">
-            <h1 className="text-2xl font-display font-black uppercase tracking-wider text-white border-b border-[#224182] pb-2">
-              Patch Notes & Weapon Tiers
-            </h1>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {([0, 1, 2, 3, 4, 5] as RarityTier[]).map((tier) => (
-                <div
-                  key={tier}
-                  className="bg-[#08132b] border border-[#224182] rounded-lg px-3 py-2 flex items-center justify-between text-xs"
-                >
-                  <span className="font-bold" style={{ color: RARITY_TIERS[tier].color }}>
-                    {RARITY_TIERS[tier].name}
-                  </span>
-                  <span className="font-mono-num text-[#94a3b8]">
-                    +{Math.round((RARITY_TIERS[tier].dmgMult - 1) * 100)}%
-                  </span>
                 </div>
-              ))}
+              )}
             </div>
-
-            {CHANGELOG.map((entry) => (
-              <div key={entry.v} className="bg-[#08132b] border border-[#224182] rounded-xl p-4">
-                <div className="text-sm font-bold text-white">
-                  v{entry.v}
-                  {entry.d && (
-                    <span className="text-xs font-normal text-[#93c5fd] ml-2">{entry.d}</span>
-                  )}
-                </div>
-                <ul className="mt-2 pl-4 list-disc text-xs text-[#cbd5e1] space-y-1">
-                  {entry.n.map((note, idx) => (
-                    <li key={idx}>{note}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
           </section>
         )}
 
         {/* ACCOUNT Tab */}
         {tab === 'account' && (
-          <section className="w-full max-w-[580px] bg-[#0d1e42]/95 border-2 border-[#254992] rounded-2xl p-6 shadow-2xl flex flex-col gap-4 max-h-[590px] overflow-y-auto ld-scroll">
-            <div className="flex items-center justify-between border-b border-[#224182] pb-2">
-              <h1 className="text-2xl font-display font-black uppercase tracking-wider text-white">
-                Account & Cloud Save
-              </h1>
-              <span className="font-mono-num text-sm font-bold text-[#38bdf8]">
-                ID {profile.tagId}
-              </span>
+          <section className={`my-auto w-full max-w-[580px] ${FRAME_PANEL} flex flex-col`}>
+            <div className="bg-[#141e30] border-b-[3px] border-[#090e17] px-6 py-3 flex items-center justify-between">
+              <div className="flex items-baseline gap-3">
+                <h1 className="text-2xl font-display font-black italic uppercase tracking-wider text-white">
+                  Account
+                </h1>
+                <span className="font-mono-num text-sm font-bold text-[#38bdf8]">
+                  {profile.tagId}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs font-mono-num">
+                <span className="inline-flex items-center gap-1 text-[#ffd24d] font-bold">
+                  <CoinSprite className="w-4 h-4" />
+                  {profile.coins.toLocaleString()}
+                </span>
+                <span className="inline-flex items-center gap-1 text-[#e879f9] font-bold">
+                  <GemSprite className="w-4 h-4" />
+                  {(profile.gems || 0).toLocaleString()}
+                </span>
+              </div>
             </div>
 
-            {/* Primary Google Login Section */}
-            <div className="bg-[#08132b] border border-[#224182] rounded-xl p-4 flex flex-col gap-3">
-              {googleUser ? (
-                <>
+            <div className="p-5 flex flex-col gap-3.5">
+              <div className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-4 flex flex-col gap-3">
+                {googleUser ? (
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-xs text-[#86efac] font-semibold">
-                        Connected with Google · Progress Synced
+                      <div className="text-xs text-[#4ade80] font-bold">
+                        Cloud Save Active
                       </div>
-                      <div className="text-base font-bold text-white truncate mt-0.5">
-                        {playerName}{' '}
-                        <span className="text-[#38bdf8] font-mono-num">{profile.tagId}</span>
+                      <div className="text-base font-bold text-white truncate">
+                        {playerName}
                       </div>
                       {googleUser.email && (
                         <div className="text-xs text-[#93c5fd] truncate">{googleUser.email}</div>
@@ -1119,132 +1442,172 @@ export function TitleOverlay({
                         onUiClick();
                         onGoogleSignOut();
                       }}
-                      className="px-3.5 py-2 rounded-lg border border-[#254992] hover:border-[#60a5fa] text-xs font-semibold text-white cursor-pointer shrink-0"
+                      className="px-3.5 py-2 rounded-lg bg-[#24324a] hover:bg-[#31456b] border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-xs font-extrabold text-white cursor-pointer shrink-0"
                     >
                       Sign out
                     </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-xs text-[#cbd5e1]">
+                      Sign in with Google to save coins, gems, rank, and cosmetics across devices.
+                    </div>
+                    <button
+                      type="button"
+                      disabled={authLoading}
+                      onClick={() => {
+                        onUiClick();
+                        onGoogleSignIn();
+                      }}
+                      className="w-full py-2.5 rounded-lg bg-white hover:bg-[#f1f5f9] border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-[#0f172a] text-sm font-extrabold flex items-center justify-center gap-2.5 cursor-pointer transition-colors disabled:opacity-60"
+                    >
+                      <GoogleIcon />
+                      <span>{authLoading ? 'Connecting...' : 'Continue with Google'}</span>
+                    </button>
+                  </>
+                )}
+
+                {authErrorMsg && (
+                  <div className="text-xs text-[#ff5c6c] font-medium">{authErrorMsg}</div>
+                )}
+              </div>
+
+              {(googleUser || db.cur) && (
+                <div className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-4 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-white">Change Username</span>
+                    {(profile.nameChangesUsed || 0) === 0 ? (
+                      <span className="font-extrabold text-[#4ade80]">First change: Free</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 font-mono-num font-bold text-[#e879f9]">
+                        <GemSprite className="w-3.5 h-3.5" />
+                        {NAME_CHANGE_GEM_COST.toLocaleString()} Gems
+                      </span>
+                    )}
                   </div>
 
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (!newDisplayName.trim()) return;
                       onUiClick();
-                      onUpdateDisplayName(newDisplayName);
-                      setNewDisplayName('');
+                      const res = onUpdateDisplayName(newDisplayName);
+                      setNameFeedback(res);
+                      if (res.ok) setNewDisplayName('');
                     }}
-                    className="flex gap-2 pt-2 border-t border-[#224182]"
+                    className="flex gap-2"
                   >
                     <input
                       type="text"
                       maxLength={16}
                       value={newDisplayName}
                       onChange={(e) => setNewDisplayName(e.target.value)}
-                      placeholder="Change display name..."
-                      className="flex-1 px-3 py-2 rounded-lg border border-[#254992] bg-[#0d1e42] text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
+                      placeholder={`New username (current: ${playerName})`}
+                      className="flex-1 px-3 py-2 rounded-lg border-2 border-[#090e17] bg-[#182338] text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
                     />
                     <button
                       type="submit"
-                      className="px-4 py-2 rounded-lg bg-[#2563eb] hover:bg-[#3b82f6] text-xs font-bold text-white cursor-pointer"
+                      className={`px-4 py-2 rounded-lg border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-xs font-extrabold whitespace-nowrap cursor-pointer transition-colors ${
+                        (profile.nameChangesUsed || 0) === 0
+                          ? 'bg-[#27c24c] hover:bg-[#32d659] text-white'
+                          : (profile.gems || 0) >= NAME_CHANGE_GEM_COST
+                            ? 'bg-[#9333ea] hover:bg-[#a855f7] text-white'
+                            : 'bg-[#24324a] text-[#94a3b8] hover:bg-[#2d3e5c]'
+                      }`}
                     >
-                      Save Name
+                      {(profile.nameChangesUsed || 0) === 0
+                        ? 'Change (Free)'
+                        : `Change · ${NAME_CHANGE_GEM_COST.toLocaleString()} Gems`}
                     </button>
                   </form>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <div className="text-sm font-bold text-white">
-                      Save Progress with Google
+
+                  {(profile.nameChangesUsed || 0) >= 1 &&
+                    (profile.gems || 0) < NAME_CHANGE_GEM_COST && (
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-[#94a3b8]">
+                        <span>
+                          Need {(NAME_CHANGE_GEM_COST - (profile.gems || 0)).toLocaleString()} more Gems to rename again.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUiClick();
+                            setShopCat('gems');
+                            onSetTab('shop');
+                          }}
+                          className="text-[#e879f9] font-bold hover:underline cursor-pointer shrink-0"
+                        >
+                          Buy Gems
+                        </button>
+                      </div>
+                    )}
+
+                  {nameFeedback && (
+                    <div
+                      className={`text-xs font-medium ${
+                        nameFeedback.ok ? 'text-[#4ade80]' : 'text-[#ff5c6c]'
+                      }`}
+                    >
+                      {nameFeedback.message}
                     </div>
-                    <p className="text-xs text-[#93c5fd] mt-0.5">
-                      Sign in with Google to save your coins, stats, skins, and unique{' '}
-                      <span className="font-mono-num text-[#38bdf8]">{profile.tagId}</span> account ID to the cloud.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={authLoading}
-                    onClick={() => {
-                      onUiClick();
-                      onGoogleSignIn();
-                    }}
-                    className="w-full py-3 rounded-xl bg-white hover:bg-[#f1f5f9] text-[#0f172a] text-sm font-bold flex items-center justify-center gap-2.5 cursor-pointer transition-colors disabled:opacity-60"
-                  >
-                    <GoogleIcon />
-                    <span>{authLoading ? 'Connecting to Google...' : 'Continue with Google'}</span>
-                  </button>
-                </>
+                  )}
+                </div>
               )}
 
-              {authErrorMsg && (
-                <div className="text-xs text-[#ff5c6c] font-medium">{authErrorMsg}</div>
+              {!googleUser && (
+                <div className="bg-[#101827] border-2 border-[#090e17] rounded-xl p-4 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[#93c5fd] font-bold">Local Browser Profile</span>
+                    {db.cur && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUiClick();
+                          onSignOut();
+                        }}
+                        className="text-[#f87171] font-bold hover:underline cursor-pointer"
+                      >
+                        Sign out ({db.cur})
+                      </button>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleAuthSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      maxLength={12}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Player name"
+                      className="px-3 py-2 rounded-lg border-2 border-[#090e17] bg-[#182338] text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
+                    />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Password (4+ chars)"
+                      className="px-3 py-2 rounded-lg border-2 border-[#090e17] bg-[#182338] text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
+                    />
+                    {authError && (
+                      <div className="sm:col-span-2 text-xs text-[#ff5c6c] font-medium">
+                        {authError}
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      className="sm:col-span-2 py-2 rounded-lg bg-[#2563eb] hover:bg-[#3b82f6] border-2 border-[#090e17] shadow-[0_3px_0_#090e17] text-xs font-extrabold text-white cursor-pointer transition-colors"
+                    >
+                      {db.cur ? 'Switch local profile' : 'Create or log in locally'}
+                    </button>
+                  </form>
+                </div>
               )}
             </div>
-
-            {/* Optional Local Browser Profile Switcher (when offline / guest) */}
-            {!googleUser && (
-              <div className="border-t border-[#224182] pt-3 flex flex-col gap-3">
-                {db.cur && (
-                  <div className="bg-[#08132b] border border-[#224182] rounded-xl p-3 flex items-center justify-between">
-                    <div>
-                      <div className="text-xs text-[#93c5fd]">Local Browser Profile</div>
-                      <div className="text-sm font-bold text-white">
-                        {db.cur} <span className="text-[#38bdf8] font-mono-num">{profile.tagId}</span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onUiClick();
-                        onSignOut();
-                      }}
-                      className="px-3 py-1.5 rounded-lg border border-[#254992] hover:border-[#60a5fa] text-xs font-semibold text-white cursor-pointer"
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                )}
-
-                <p className="text-xs text-[#93c5fd]">
-                  Or create an offline browser-only profile (each new account gets a random #XXXX ID):
-                </p>
-
-                <form onSubmit={handleAuthSubmit} className="flex flex-col gap-2.5">
-                  <input
-                    type="text"
-                    maxLength={12}
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Player name"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#254992] bg-[#08132b] text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
-                  />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password (min 4 chars)"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#254992] bg-[#08132b] text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
-                  />
-                  {authError && (
-                    <div className="text-xs text-[#ff5c6c] font-medium">{authError}</div>
-                  )}
-                  <button
-                    type="submit"
-                    className="w-full py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#3b82f6] text-sm font-bold text-white cursor-pointer transition-colors"
-                  >
-                    {db.cur ? 'Switch local profile' : 'Create or log in locally'}
-                  </button>
-                </form>
-              </div>
-            )}
           </section>
         )}
       </main>
 
-      {/* Bottom Hint Bar */}
-      <footer className="pb-3 px-4 text-xs text-[#cbd5e1] tracking-wide text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">
-        Space Drop · WASD Move · Mouse Aim/Fire · E Open Chest / Loot · R Reload · M Map · B Emote · 1–6 Slots
+      {/* Quiet 1-Line Control Legend */}
+      <footer className="pb-2.5 px-4 text-[11px] font-semibold text-[#cbd5e1] drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] text-center shrink-0">
+        v{VER} · Space Drop · WASD Move · Mouse Shoot · E Loot/Door · R Reload · M Map · 1–6 Slots
       </footer>
     </div>
   );

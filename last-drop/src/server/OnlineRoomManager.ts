@@ -3,6 +3,7 @@ import {
   AMMO_INFO,
   AMMO_TYPES,
   BOT_NAMES,
+  EMOTES,
   ISLAND_MARGIN,
   isGun,
   isSniper,
@@ -15,6 +16,9 @@ import {
   RARITY_TIERS,
   ROOF_COLORS,
   SKIN_TONES,
+  SPAWN_COUNTDOWN_SEC,
+  SPAWN_ISLAND,
+  SPAWN_SKIP_TO_SEC,
   STORM_RADII,
   TOTAL_PLAYERS,
   WP,
@@ -88,7 +92,7 @@ export interface JoinPayload {
 }
 
 export interface RoomEventPacket {
-  type: 'boom' | 'impulse' | 'reverse' | 'chest' | 'airdrop' | 'shot' | 'hurt' | 'hit' | 'kill' | 'die' | 'dmg' | 'door' | 'bounce' | 'empty';
+  type: 'boom' | 'impulse' | 'reverse' | 'chest' | 'airdrop' | 'shot' | 'hurt' | 'hit' | 'kill' | 'die' | 'dmg' | 'door' | 'bounce' | 'empty' | 'healStart' | 'healDone' | 'healCap';
   x: number;
   y: number;
   c?: string;
@@ -131,6 +135,8 @@ interface OnlineRoom {
   events: RoomEventPacket[];
   humans: Map<number, HumanSession>;
   broadcastAcc: number;
+  botSpawnAcc: number;
+  nextBotIdx: number;
   pendingResults: Array<{ player: Player; title: 'VICTORY' | 'ELIMINATED'; winnerName?: string }>;
 }
 
@@ -195,7 +201,7 @@ export class OnlineRoomManager {
 
     let p: Player;
     if (room.phase === 'PLANE') {
-      // Replace one bot still in plane or alive so total stays 24
+      // Replace one bot still in plane or alive so total stays TOTAL_PLAYERS
       const botIdx = room.players.findIndex((pl) => pl.bot && pl.alive);
       p = this.createPlayer(room, cleanName, false, room.humans.size, true);
       p.x = room.plane.x;
@@ -206,10 +212,20 @@ export class OnlineRoomManager {
         room.players.push(p);
       }
     } else {
-      p = this.createPlayer(room, cleanName, false, room.humans.size, true);
-      p.x = room.plane.sx;
-      p.y = room.plane.sy;
-      room.players.push(p);
+      p = this.createPlayer(room, cleanName, false, room.humans.size, false);
+      p.x = SPAWN_ISLAND.cx + rnd(-90, 90);
+      p.y = SPAWN_ISLAND.cy + rnd(-75, 75);
+      this.resolveWalls(room, p, PLAYER_RADIUS);
+      if (room.players.length >= TOTAL_PLAYERS) {
+        const botIdx = room.players.findIndex((pl) => pl.bot && pl.alive);
+        if (botIdx >= 0) {
+          room.players.splice(botIdx, 1, p);
+        } else {
+          room.players.push(p);
+        }
+      } else {
+        room.players.push(p);
+      }
     }
 
     if (payload.skinTone) p.fl = payload.skinTone;
@@ -279,16 +295,23 @@ export class OnlineRoomManager {
     }
 
     if (msg.type === 'emote') {
-      if (!me.alive || me.inPlane || room.phase === 'COUNTDOWN') return;
+      if (!me.alive || me.inPlane) return;
       me.emote = String(msg.emote || 'GG!').slice(0, 8);
       me.emoteTimer = 2.2;
       return;
     }
 
-    if (room.phase === 'COUNTDOWN') return;
+    if (msg.type === 'skipCountdown') {
+      if (room.phase === 'COUNTDOWN' && room.countdown > SPAWN_SKIP_TO_SEC) {
+        room.countdown = SPAWN_SKIP_TO_SEC;
+        this.pushFeed(room, `${me.name} skipped countdown to ${SPAWN_SKIP_TO_SEC}s`, '#fbbf24');
+        this.broadcastState(room);
+      }
+      return;
+    }
 
     if (msg.type === 'jump') {
-      if (!me.alive || !me.inPlane) return;
+      if (room.phase === 'COUNTDOWN' || !me.alive || !me.inPlane) return;
       me.inPlane = false;
       me.dropTime = 1.6;
       me.dropMax = 1.6;
@@ -304,6 +327,11 @@ export class OnlineRoomManager {
       if (Number.isInteger(i) && i >= 0 && i < 6 && me.inv[i] >= 0) {
         me.sl = i;
         me.w = me.inv[i];
+        if (me.hl && me.w !== me.hw) {
+          me.hl = 0;
+          me.ht = 0;
+          me.hw = 0;
+        }
       }
     } else if (msg.type === 'swapSlots') {
       const fromIdx = Number(msg.from);
@@ -348,6 +376,9 @@ export class OnlineRoomManager {
         if (me.sl === slotIdx) {
           me.sl = 0;
           me.w = 0;
+          me.hl = 0;
+          me.ht = 0;
+          me.hw = 0;
         }
       }
     } else if (msg.type === 'pick') {
@@ -398,7 +429,7 @@ export class OnlineRoomManager {
     const room: OnlineRoom = {
       id,
       phase: 'COUNTDOWN',
-      countdown: 4.0,
+      countdown: SPAWN_COUNTDOWN_SEC,
       elapsed: 0,
       nextId: 1,
       stormTick: 0,
@@ -441,6 +472,8 @@ export class OnlineRoomManager {
       events: [],
       humans: new Map(),
       broadcastAcc: 0,
+      botSpawnAcc: 0.25,
+      nextBotIdx: 0,
       pendingResults: [],
     };
 
@@ -468,7 +501,7 @@ export class OnlineRoomManager {
     const minLand = ISLAND_MARGIN + 100;
     const maxLand = MAP_SIZE - ISLAND_MARGIN - 100;
 
-    for (let i = 0; i < 520; i++) {
+    for (let i = 0; i < 580; i++) {
       const q = Math.random();
       const kind: Obstacle['kind'] =
         q < 0.56 ? 'tree' : q < 0.84 ? 'rock' : q < 0.94 ? 'crate' : 'barrel';
@@ -492,7 +525,7 @@ export class OnlineRoomManager {
       });
     }
 
-    for (let i = 0; i < 540; i++) {
+    for (let i = 0; i < 640; i++) {
       const q = Math.random();
       let w: number;
       if (q < 0.52) {
@@ -503,10 +536,12 @@ export class OnlineRoomManager {
       } else if (q < 0.7) {
         const gRoll = Math.random();
         w = gRoll < 0.4 ? 6 : gRoll < 0.72 ? 10 : 11;
-      } else if (q < 0.85) {
+      } else if (q < 0.81) {
         w = 7;
-      } else {
+      } else if (q < 0.90) {
         w = 8;
+      } else {
+        w = 12;
       }
       room.loot.push({
         id: room.nextId++,
@@ -515,10 +550,11 @@ export class OnlineRoomManager {
         t: 'w',
         w,
         r: isStackable(w) ? 0 : rollRarity(0),
+        n: w === 12 ? 2 : undefined,
       });
     }
 
-    for (let i = 0; i < 190; i++) {
+    for (let i = 0; i < 220; i++) {
       const aType = AMMO_TYPES[Math.floor(Math.random() * AMMO_TYPES.length)];
       room.loot.push({
         id: room.nextId++,
@@ -533,6 +569,175 @@ export class OnlineRoomManager {
     }
 
     this.buildStructures(room);
+    this.spawnWarmupIslandItems(room);
+  }
+
+  private spawnWarmupIslandItems(room: OnlineRoom) {
+    const si = SPAWN_ISLAND;
+
+    const t = 22;
+    const gp = 76;
+    const cottages: Array<{ x: number; y: number; w: number; h: number; doorSide: 0 | 1 | 2 | 3 }> = [
+      { x: si.x + 180, y: si.y + 150, w: 195, h: 165, doorSide: 1 },
+      { x: si.x + si.w - 375, y: si.y + 150, w: 195, h: 165, doorSide: 1 },
+      { x: si.x + 140, y: si.cy - 90, w: 175, h: 180, doorSide: 3 },
+      { x: si.x + 210, y: si.y + si.h - 325, w: 205, h: 165, doorSide: 0 },
+      { x: si.x + si.w - 400, y: si.y + si.h - 325, w: 205, h: 165, doorSide: 0 },
+    ];
+
+    cottages.forEach((hDef, idx) => {
+      const { x, y, w, h, doorSide } = hDef;
+      const roofColor = ROOF_COLORS[idx % ROOF_COLORS.length];
+      room.floors.push({ x, y, w, h, roofColor, roofAlpha: 1 });
+
+      const horiz = (yy: number, hasDoor: boolean) => {
+        if (hasDoor) {
+          const o = Math.round((w - gp) / 2);
+          room.walls.push({ x, y: yy, w: o, h: t });
+          room.walls.push({ x: x + o + gp, y: yy, w: w - o - gp, h: t });
+          room.doors.push({
+            id: room.nextId++,
+            x: x + o,
+            y: yy,
+            w: gp,
+            h: t,
+            horizontal: true,
+            open: false,
+            openProgress: 0,
+          });
+        } else {
+          room.walls.push({ x, y: yy, w, h: t });
+        }
+      };
+
+      const vert = (xx: number, hasDoor: boolean) => {
+        if (hasDoor) {
+          const o = Math.round((h - gp) / 2);
+          room.walls.push({ x: xx, y: y + t, w: t, h: o - t });
+          room.walls.push({ x: xx, y: y + o + gp, w: t, h: h - o - gp - t });
+          room.doors.push({
+            id: room.nextId++,
+            x: xx,
+            y: y + o,
+            w: t,
+            h: gp,
+            horizontal: false,
+            open: false,
+            openProgress: 0,
+          });
+        } else {
+          room.walls.push({ x: xx, y: y + t, w: t, h: h - 2 * t });
+        }
+      };
+
+      horiz(y, doorSide === 0);
+      horiz(y + h - t, doorSide === 1);
+      vert(x, doorSide === 2);
+      vert(x + w - t, doorSide === 3);
+
+      room.chests.push({
+        id: room.nextId++,
+        x: x + w * 0.5,
+        y: y + h * 0.5,
+        opened: false,
+        golden: idx === 1 || idx === 4,
+      });
+
+      for (let k = 0; k < 2; k++) {
+        const wi = k === 0 ? 1 + ((idx + 1) % 4) : idx % 2 === 0 ? 10 : 12;
+        room.loot.push({
+          id: room.nextId++,
+          x: x + t + 30 + (w - 2 * t - 60) * (k === 0 ? 0.24 : 0.76),
+          y: y + t + 30 + (h - 2 * t - 60) * (k === 0 ? 0.72 : 0.28),
+          t: 'w',
+          w: wi,
+          r: isStackable(wi) ? 0 : rollRarity(0.15),
+          n: wi === 12 ? 2 : undefined,
+        });
+      }
+    });
+
+    const rackWeapons: Array<{ w: number; r: RarityTier; n?: number }> = [
+      { w: 1, r: 1 },
+      { w: 2, r: 2 },
+      { w: 3, r: 2 },
+      { w: 4, r: 3 },
+      { w: 5, r: 3 },
+      { w: 10, r: 0, n: 4 },
+    ];
+    rackWeapons.forEach((item, idx) => {
+      room.loot.push({
+        id: room.nextId++,
+        x: si.cx - 175 + idx * 70,
+        y: si.cy - 280,
+        t: 'w',
+        w: item.w,
+        r: item.r,
+        n: item.n,
+      });
+    });
+
+    AMMO_TYPES.forEach((aType, idx) => {
+      room.loot.push({
+        id: room.nextId++,
+        x: si.cx - 135 + idx * 90,
+        y: si.cy - 235,
+        t: 'a',
+        w: 0,
+        r: 0,
+        ammoType: aType,
+        n: AMMO_INFO[aType].packAmount * 2,
+      });
+    });
+
+    const isClearWarmupSpot = (ox: number, oy: number, pad: number) => {
+      if (Math.abs(ox - si.cx) < 165 && Math.abs(oy - si.cy) < 165) return false;
+      if (ox > si.cx - 245 && ox < si.cx + 245 && oy > si.cy - 345 && oy < si.cy - 175) return false;
+      if (ox > si.cx - 45 && oy > si.cy - 65 && oy < si.cy + 65) return false;
+      return !cottages.some(
+        (c) => ox > c.x - pad && ox < c.x + c.w + pad && oy > c.y - pad && oy < c.y + c.h + pad
+      );
+    };
+
+    for (let i = 0; i < 16; i++) {
+      const tx = rnd(si.x + 85, si.x + si.w - 85);
+      const ty = rnd(si.y + 85, si.y + si.h - 85);
+      if (!isClearWarmupSpot(tx, ty, 65)) continue;
+      room.obstacles.push({
+        x: tx,
+        y: ty,
+        r: rnd(26, 38),
+        kind: 'tree',
+        hp: 65,
+        mh: 65,
+        hitFlash: 0,
+      });
+    }
+
+    const crateCoords: [number, number][] = [
+      [si.cx - 255, si.cy - 70],
+      [si.cx - 255, si.cy + 70],
+      [si.cx + 230, si.cy - 120],
+      [si.cx + 230, si.cy + 120],
+      [si.x + 115, si.y + 420],
+      [si.x + si.w - 115, si.y + 420],
+      [si.x + 560, si.y + 150],
+      [si.x + si.w - 560, si.y + 150],
+      [si.x + 560, si.y + si.h - 150],
+      [si.x + si.w - 560, si.y + si.h - 150],
+    ];
+    for (const [ox, oy] of crateCoords) {
+      if (!isClearWarmupSpot(ox, oy, 36)) continue;
+      room.obstacles.push({
+        x: ox,
+        y: oy,
+        r: 18,
+        kind: 'crate',
+        hp: 40,
+        mh: 40,
+        hitFlash: 0,
+      });
+    }
   }
 
   private buildStructures(room: OnlineRoom) {
@@ -618,9 +823,11 @@ export class OnlineRoomManager {
               ? Math.random() < 0.5
                 ? 10
                 : 11
-              : q < 0.84
+              : q < 0.80
                 ? 7
-                : 8;
+                : q < 0.90
+                  ? 8
+                  : 12;
         room.loot.push({
           id: room.nextId++,
           x: x + t + 32 + Math.random() * (w - 2 * t - 64),
@@ -628,6 +835,7 @@ export class OnlineRoomManager {
           t: 'w',
           w: wi,
           r: isStackable(wi) ? 0 : rollRarity(0.14),
+          n: wi === 12 ? 2 : undefined,
         });
       }
     };
@@ -737,6 +945,9 @@ export class OnlineRoomManager {
       rl: 0,
       rt: 0,
       rw: 0,
+      hl: 0,
+      ht: 0,
+      hw: 0,
       sk: 0.65 + Math.random() * 0.35,
       hitFlash: 0,
       recoil: 0,
@@ -770,35 +981,109 @@ export class OnlineRoomManager {
       return;
     }
 
-    if (room.phase === 'COUNTDOWN') {
-      room.countdown -= dt;
-      if (room.countdown <= 0) {
-        room.phase = 'PLANE';
-        room.plane.active = true;
-        // Backfill bots up to TOTAL_PLAYERS
-        const needed = Math.max(0, TOTAL_PLAYERS - room.players.length);
-        for (let i = 0; i < needed; i++) {
-          const bot = this.createPlayer(room, BOT_NAMES[i % BOT_NAMES.length], true, i, true);
-          bot.x = room.plane.sx;
-          bot.y = room.plane.sy;
-          bot.planeJumpAt = rnd(0.1, 0.9);
-          room.players.push(bot);
-        }
-        this.pushFeed(room, 'Drop Plane airborne — Press Space to jump!', '#38bdf8');
-      }
-      room.broadcastAcc += dt;
-      if (room.broadcastAcc >= 0.05) {
-        room.broadcastAcc = 0;
-        this.broadcastState(room);
-      }
-      return;
-    }
-
     if (room.phase === 'ENDED') {
       return;
     }
 
-    room.elapsed += dt;
+    const isCountdown = room.phase === 'COUNTDOWN';
+    if (isCountdown) {
+      // Gradually spawn bots onto Spawn Island during countdown to avoid lag bursts
+      if (room.players.length < TOTAL_PLAYERS) {
+        room.botSpawnAcc -= dt;
+        if (room.botSpawnAcc <= 0) {
+          room.botSpawnAcc += 0.26;
+          const batch = Math.min(2, TOTAL_PLAYERS - room.players.length);
+          for (let i = 0; i < batch; i++) {
+            const bIdx = room.nextBotIdx++;
+            const bot = this.createPlayer(
+              room,
+              BOT_NAMES[bIdx % BOT_NAMES.length],
+              true,
+              bIdx,
+              false
+            );
+            bot.x = rnd(SPAWN_ISLAND.x + 70, SPAWN_ISLAND.x + SPAWN_ISLAND.w - 70);
+            bot.y = rnd(SPAWN_ISLAND.y + 70, SPAWN_ISLAND.y + SPAWN_ISLAND.h - 70);
+            bot.planeJumpAt = rnd(0.06, 0.94);
+            this.resolveWalls(room, bot, PLAYER_RADIUS);
+            room.players.push(bot);
+            room.events.push({ type: 'impulse', x: bot.x, y: bot.y, r: 24, c: '#38bdf8' });
+          }
+        }
+      }
+
+      room.countdown -= dt;
+      if (room.countdown <= 0) {
+        room.phase = 'PLANE';
+        room.countdown = 0;
+        room.elapsed = 0;
+        room.stormTick = 0;
+        room.bullets = [];
+        room.grenades = [];
+        room.loot = room.loot.filter((l) => l.x >= 0);
+        room.obstacles = room.obstacles.filter((o) => o.x >= 0);
+        room.chests = room.chests.filter((c) => c.x >= 0);
+        room.plane.active = true;
+        room.plane.progress = 0;
+        room.plane.x = room.plane.sx;
+        room.plane.y = room.plane.sy;
+
+        for (const pl of room.players) {
+          pl.alive = true;
+          pl.hp = 100;
+          pl.sh = 0;
+          pl.st = 100;
+          pl.inv = [0, -1, -1, -1, -1, -1];
+          pl.invRarity = [0, 0, 0, 0, 0, 0];
+          pl.sl = 0;
+          pl.w = 0;
+          pl.c = {};
+          pl.am = {};
+          pl.ra = createEmptyReserve();
+          pl.gn = 0;
+          pl.rl = 0;
+          pl.rt = 0;
+          pl.rw = 0;
+          pl.hl = 0;
+          pl.ht = 0;
+          pl.hw = 0;
+          pl.kvx = 0;
+          pl.kvy = 0;
+          pl.hitFlash = 0;
+          pl.recoil = 0;
+          pl.dm = 0;
+          pl.k = 0;
+          pl.inPlane = true;
+          pl.dropTime = 0;
+          pl.x = room.plane.sx;
+          pl.y = room.plane.sy;
+          pl.emote = null;
+          pl.emoteTimer = 0;
+        }
+
+        // Backfill remaining bots up to TOTAL_PLAYERS
+        const needed = Math.max(0, TOTAL_PLAYERS - room.players.length);
+        for (let i = 0; i < needed; i++) {
+          const bIdx = room.nextBotIdx++;
+          const bot = this.createPlayer(
+            room,
+            BOT_NAMES[bIdx % BOT_NAMES.length],
+            true,
+            bIdx,
+            true
+          );
+          bot.x = room.plane.sx;
+          bot.y = room.plane.sy;
+          bot.planeJumpAt = rnd(0.06, 0.94);
+          room.players.push(bot);
+        }
+        this.pushFeed(room, 'Drop Plane airborne — Press Space to jump!', '#38bdf8');
+        this.broadcastState(room);
+        return;
+      }
+    } else {
+      room.elapsed += dt;
+    }
 
     if (room.plane.active) {
       room.plane.progress += dt / 16.5;
@@ -841,13 +1126,16 @@ export class OnlineRoomManager {
       }
     }
 
-    this.updateStorm(room, dt);
-    room.stormTick += dt;
-    const tick = room.stormTick >= 1;
-    if (tick) room.stormTick -= 1;
+    let tick = false;
+    if (!isCountdown) {
+      this.updateStorm(room, dt);
+      room.stormTick += dt;
+      tick = room.stormTick >= 1;
+      if (tick) room.stormTick -= 1;
 
-    room.nextAir -= dt;
-    if (room.nextAir <= 0) {
+      room.nextAir -= dt;
+    }
+    if (!isCountdown && room.nextAir <= 0) {
       room.nextAir = 42;
       const a = rnd(0, Math.PI * 2);
       const d = rnd(0, room.storm.r * 0.65);
@@ -927,7 +1215,11 @@ export class OnlineRoomManager {
       let vx = 0;
       let vy = 0;
       if (p.bot) {
-        this.runBotAI(room, p, dt);
+        if (isCountdown) {
+          this.runWarmupBotAI(room, p, dt);
+        } else {
+          this.runBotAI(room, p, dt);
+        }
         const l0 = hyp(p.vx, p.vy) || 1;
         const tx = p.vx / l0;
         const ty = p.vy / l0;
@@ -945,15 +1237,22 @@ export class OnlineRoomManager {
       }
 
       let sp = p.bot ? 215 : 245;
-      const inWater =
-        p.x < ISLAND_MARGIN ||
-        p.x > MAP_SIZE - ISLAND_MARGIN ||
-        p.y < ISLAND_MARGIN ||
-        p.y > MAP_SIZE - ISLAND_MARGIN;
+      const inWater = isCountdown
+        ? p.x < SPAWN_ISLAND.x ||
+          p.x > SPAWN_ISLAND.x + SPAWN_ISLAND.w ||
+          p.y < SPAWN_ISLAND.y ||
+          p.y > SPAWN_ISLAND.y + SPAWN_ISLAND.h
+        : p.x < ISLAND_MARGIN ||
+          p.x > MAP_SIZE - ISLAND_MARGIN ||
+          p.y < ISLAND_MARGIN ||
+          p.y > MAP_SIZE - ISLAND_MARGIN;
       if (inWater) sp *= 0.65;
 
+      const isHealing = (p.hl ?? 0) > 0;
+      if (isHealing) sp *= 0.55;
+
       if (!p.bot && sess) {
-        if (sess.input.sprint && (vx || vy) && p.st > 0) {
+        if (!isHealing && sess.input.sprint && (vx || vy) && p.st > 0) {
           sp *= 1.42;
           p.st = Math.max(0, p.st - 34 * dt);
         } else {
@@ -980,10 +1279,36 @@ export class OnlineRoomManager {
         p.kvy = Math.abs(p.kvy || 0) < 8 ? 0 : (p.kvy || 0) * damp;
       }
 
-      p.x = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.x));
-      p.y = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.y));
+      if (isCountdown) {
+        p.x = Math.max(
+          SPAWN_ISLAND.x - 24,
+          Math.min(SPAWN_ISLAND.x + SPAWN_ISLAND.w + 24, p.x)
+        );
+        p.y = Math.max(
+          SPAWN_ISLAND.y - 24,
+          Math.min(SPAWN_ISLAND.y + SPAWN_ISLAND.h + 24, p.y)
+        );
+      } else {
+        p.x = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.x));
+        p.y = Math.max(PLAYER_RADIUS, Math.min(MAP_SIZE - PLAYER_RADIUS, p.y));
+      }
       p.cd -= dt;
       p.pc -= dt;
+
+      if ((p.hl ?? 0) > 0) {
+        p.hl = (p.hl || 0) - dt;
+        if (p.w !== p.hw || this.countItem(p, p.hw || 0) < 1) {
+          p.hl = 0;
+          p.ht = 0;
+          p.hw = 0;
+        } else if ((p.hl || 0) <= 0) {
+          const completedItem = p.hw || p.w;
+          p.hl = 0;
+          p.ht = 0;
+          p.hw = 0;
+          this.useConsumable(room, p, completedItem);
+        }
+      }
 
       if (p.rl > 0) {
         p.rl -= dt;
@@ -1013,6 +1338,7 @@ export class OnlineRoomManager {
 
       for (const q of room.players) {
         if (q !== p && q.alive && !q.inPlane && q.dropTime <= 0) {
+          if (Math.abs(p.x - q.x) >= 30 || Math.abs(p.y - q.y) >= 30) continue;
           const d = hyp(p.x - q.x, p.y - q.y);
           if (d > 0 && d < 30) {
             const k = (30 - d) / 2;
@@ -1024,8 +1350,9 @@ export class OnlineRoomManager {
 
       for (const o of room.obstacles) {
         const colR = o.kind === 'tree' ? o.r * 0.45 : o.r;
-        const d = hyp(p.x - o.x, p.y - o.y);
         const m = colR + PLAYER_RADIUS;
+        if (Math.abs(p.x - o.x) >= m || Math.abs(p.y - o.y) >= m) continue;
+        const d = hyp(p.x - o.x, p.y - o.y);
         if (d < m && d > 0) {
           p.x = o.x + ((p.x - o.x) / d) * m;
           p.y = o.y + ((p.y - o.y) / d) * m;
@@ -1094,7 +1421,7 @@ export class OnlineRoomManager {
         }
       }
 
-      if (tick && hyp(p.x - room.storm.x, p.y - room.storm.y) > room.storm.r) {
+      if (!isCountdown && tick && hyp(p.x - room.storm.x, p.y - room.storm.y) > room.storm.r) {
         this.damagePlayer(room, p, 2 + room.storm.i * 1.5, null);
       }
     }
@@ -1118,20 +1445,22 @@ export class OnlineRoomManager {
     room.feed = room.feed.filter((f) => f.t > 0);
 
     // Check match victory / human eliminations
-    const alivePlayers = room.players.filter((q) => q.alive);
-    if (alivePlayers.length <= 1 && room.players.length >= 2) {
-      const winner = alivePlayers[0];
-      if (winner && !winner.bot && !winner.fin) {
-        winner.fin = true;
-        room.pendingResults.push({ player: winner, title: 'VICTORY', winnerName: winner.name });
+    if (!isCountdown) {
+      const alivePlayers = room.players.filter((q) => q.alive);
+      if (alivePlayers.length <= 1 && room.players.length >= 2) {
+        const winner = alivePlayers[0];
+        if (winner && !winner.bot && !winner.fin) {
+          winner.fin = true;
+          room.pendingResults.push({ player: winner, title: 'VICTORY', winnerName: winner.name });
+        }
+        for (const sess of room.humans.values()) {
+          this.sendToSession(sess, {
+            type: 'allEliminated',
+            winnerName: winner?.name || 'Unknown',
+          });
+        }
+        room.phase = 'ENDED';
       }
-      for (const sess of room.humans.values()) {
-        this.sendToSession(sess, {
-          type: 'allEliminated',
-          winnerName: winner?.name || 'Unknown',
-        });
-      }
-      room.phase = 'ENDED';
     }
 
     room.broadcastAcc += dt;
@@ -1269,10 +1598,19 @@ export class OnlineRoomManager {
         ? 5
         : 1 + Math.floor(Math.random() * 4);
     const utilRoll = Math.random();
-    const utilWeapon = utilRoll < 0.36 ? 7 : utilRoll < 0.68 ? 8 : utilRoll < 0.84 ? 10 : 11;
+    const utilWeapon =
+      utilRoll < 0.30
+        ? 7
+        : utilRoll < 0.52
+          ? 8
+          : utilRoll < 0.76
+            ? 12
+            : utilRoll < 0.88
+              ? 10
+              : 11;
     const itemsToDrop: { t: 'w' | 'a'; w: number; r: RarityTier; ammoType?: AmmoType; n?: number }[] = [
       { t: 'w', w: weaponPick, r: rollRarity(boost) },
-      { t: 'w', w: utilWeapon, r: 0 },
+      { t: 'w', w: utilWeapon, r: 0, n: utilWeapon === 12 ? (chest.golden ? 3 : 2) : undefined },
     ];
     const wAmmoType = WP[weaponPick]?.ammoType;
     if (wAmmoType) {
@@ -1281,7 +1619,8 @@ export class OnlineRoomManager {
     }
     if (chest.golden || Math.random() < 0.5) {
       const r2 = Math.random();
-      itemsToDrop.push({ t: 'w', w: r2 < 0.34 ? 6 : r2 < 0.64 ? 8 : r2 < 0.82 ? 10 : 11, r: 0 });
+      const bw = r2 < 0.28 ? 6 : r2 < 0.50 ? 8 : r2 < 0.74 ? 12 : r2 < 0.87 ? 10 : 11;
+      itemsToDrop.push({ t: 'w', w: bw, r: 0, n: bw === 12 ? 2 : undefined });
     }
 
     itemsToDrop.forEach((entry, idx) => {
@@ -1407,8 +1746,13 @@ export class OnlineRoomManager {
           }
         }
       }
-      g.x = Math.max(gr, Math.min(MAP_SIZE - gr, g.x));
-      g.y = Math.max(gr, Math.min(MAP_SIZE - gr, g.y));
+      if (room.phase === 'COUNTDOWN') {
+        g.x = Math.max(SPAWN_ISLAND.x - 24 + gr, Math.min(SPAWN_ISLAND.x + SPAWN_ISLAND.w + 24 - gr, g.x));
+        g.y = Math.max(SPAWN_ISLAND.y - 24 + gr, Math.min(SPAWN_ISLAND.y + SPAWN_ISLAND.h + 24 - gr, g.y));
+      } else {
+        g.x = Math.max(gr, Math.min(MAP_SIZE - gr, g.x));
+        g.y = Math.max(gr, Math.min(MAP_SIZE - gr, g.y));
+      }
     }
   }
 
@@ -1500,6 +1844,7 @@ export class OnlineRoomManager {
 
   private resolveWalls(room: OnlineRoom, p: { x: number; y: number }, r: number) {
     const pushOutRect = (rx: number, ry: number, rw: number, rh: number) => {
+      if (p.x + r < rx || p.x - r > rx + rw || p.y + r < ry || p.y - r > ry + rh) return;
       const nx = Math.max(rx, Math.min(p.x, rx + rw));
       const ny = Math.max(ry, Math.min(p.y, ry + rh));
       const dx = p.x - nx;
@@ -1529,6 +1874,7 @@ export class OnlineRoomManager {
     for (let k = 0; k < room.obstacles.length; k++) {
       const o = room.obstacles[k];
       const hitR = o.kind === 'tree' ? o.r * 0.48 : o.r;
+      if (Math.abs(b.x - o.x) > hitR || Math.abs(b.y - o.y) > hitR) continue;
       if (hyp(b.x - o.x, b.y - o.y) < hitR) {
         this.damageObstacle(room, k, b.d, b.o);
         return true;
@@ -1553,6 +1899,8 @@ export class OnlineRoomManager {
         !p.inPlane &&
         p.dropTime <= 0 &&
         p !== b.o &&
+        Math.abs(b.x - p.x) < PLAYER_RADIUS + 2 &&
+        Math.abs(b.y - p.y) < PLAYER_RADIUS + 2 &&
         hyp(b.x - p.x, b.y - p.y) < PLAYER_RADIUS + 1
       ) {
         this.damagePlayer(room, p, b.d, b.o);
@@ -1573,13 +1921,15 @@ export class OnlineRoomManager {
         this.explodeAt(room, o.x, o.y, 115, 70, attacker);
       } else if (o.kind === 'crate') {
         const dropW =
-          Math.random() < 0.65
+          Math.random() < 0.62
             ? 1 + Math.floor(Math.random() * 4)
-            : Math.random() < 0.4
+            : Math.random() < 0.30
               ? 7
-              : Math.random() < 0.7
+              : Math.random() < 0.55
                 ? 8
-                : 10;
+                : Math.random() < 0.80
+                  ? 12
+                  : 10;
         room.loot.push({
           id: room.nextId++,
           x: o.x,
@@ -1587,6 +1937,7 @@ export class OnlineRoomManager {
           t: 'w',
           w: dropW,
           r: isStackable(dropW) ? 0 : rollRarity(0.1),
+          n: dropW === 12 ? 2 : undefined,
         });
         const crateAmmo = WP[dropW]?.ammoType;
         if (crateAmmo) {
@@ -1612,6 +1963,18 @@ export class OnlineRoomManager {
     attacker: Player | null
   ) {
     if (!p.alive || p.inPlane || p.dropTime > 0) return;
+    if (room.phase === 'COUNTDOWN') {
+      p.hitFlash = 0.08;
+      room.events.push({
+        type: 'dmg',
+        x: p.x,
+        y: p.y,
+        c: p.col,
+        targetId: p.id,
+        attackerId: attacker?.id,
+      });
+      return;
+    }
     let d = amount;
     if (attacker && attacker !== p) {
       attacker.dm += d;
@@ -1719,14 +2082,14 @@ export class OnlineRoomManager {
       p.am[p.w]--;
     }
 
+    if (w.usable) {
+      this.startHeal(room, p);
+      return;
+    }
+
     p.cd = w.fireRate;
     p.recoil = w.melee ? 0 : 1;
     room.events.push({ type: 'shot', x: p.x, y: p.y, w: p.w, attackerId: p.id });
-
-    if (w.usable) {
-      this.useConsumable(p, p.w);
-      return;
-    }
 
     if (w.throwable) {
       const count = this.countItem(p, p.w);
@@ -1826,16 +2189,52 @@ export class OnlineRoomManager {
     return isGun(l.w) && WP[l.w].damage > minScore;
   }
 
-  private useConsumable(p: Player, w: number) {
+  private startHeal(room: OnlineRoom, p: Player) {
+    if ((p.hl ?? 0) > 0) return;
+    const wId = p.w;
+    const wDef = WP[wId];
+    if (!wDef?.usable || this.countItem(p, wId) < 1) return;
+
+    if (wId === 7 && p.hp >= 100) return;
+    if (wId === 8 && p.sh >= 100) return;
+    if (wId === 12 && p.sh >= 50) {
+      p.cd = 0.35;
+      if (!p.bot) {
+        room.events.push({ type: 'healCap', x: p.x, y: p.y, attackerId: p.id });
+      }
+      return;
+    }
+
+    p.rl = 0;
+    p.rt = 0;
+    p.hl = p.ht = wDef.useTime || 5.0;
+    p.hw = wId;
+    p.cd = 0.15;
+    if (!p.bot) {
+      room.events.push({ type: 'healStart', x: p.x, y: p.y, attackerId: p.id });
+    }
+  }
+
+  private useConsumable(room: OnlineRoom, p: Player, w: number) {
     if (this.countItem(p, w) < 1) return;
     if (w === 7) {
       if (p.hp >= 100) return;
-      p.hp = Math.min(100, p.hp + 45);
+      p.hp = 100;
+    } else if (w === 12) {
+      if (p.sh >= 50) return;
+      p.sh = Math.min(50, p.sh + 25);
     } else {
       if (p.sh >= 100) return;
-      p.sh = Math.min(100, p.sh + 45);
+      p.sh = Math.min(100, p.sh + 50);
     }
     this.setItemCount(p, w, this.countItem(p, w) - 1);
+    room.events.push({
+      type: 'healDone',
+      x: p.x,
+      y: p.y,
+      c: w === 7 ? '#ff5c6c' : w === 12 ? '#7dd3fc' : '#38bdf8',
+      attackerId: p.id,
+    });
     if (this.countItem(p, w) < 1) {
       const k = p.inv.indexOf(w);
       if (k >= 0) {
@@ -1987,11 +2386,31 @@ export class OnlineRoomManager {
     }
   }
 
+  private runWarmupBotAI(room: OnlineRoom, b: Player, dt: number) {
+    b.tt -= dt;
+    if (b.tt <= 0 || hyp(b.tx - b.x, b.ty - b.y) < 30) {
+      b.tt = rnd(1.4, 3.6);
+      b.tx = rnd(SPAWN_ISLAND.x + 50, SPAWN_ISLAND.x + SPAWN_ISLAND.w - 50);
+      b.ty = rnd(SPAWN_ISLAND.y + 50, SPAWN_ISLAND.y + SPAWN_ISLAND.h - 50);
+      if (!b.emote && Math.random() < 0.16) {
+        b.emote = EMOTES[Math.floor(Math.random() * EMOTES.length)];
+        b.emoteTimer = 2.0;
+      }
+    }
+    b.vx = b.tx - b.x;
+    b.vy = b.ty - b.y;
+    b.a = Math.atan2(b.vy, b.vx);
+    if (b.cd <= 0 && Math.random() < 0.018) {
+      this.shoot(room, b);
+    }
+  }
+
   private runBotAI(room: OnlineRoom, b: Player, dt: number) {
     let tg: Player | null = null;
     let bd = 1e9;
     for (const q of room.players) {
       if (q === b || !q.alive || q.inPlane || q.dropTime > 0) continue;
+      if (Math.abs(q.x - b.x) > bd || Math.abs(q.y - b.y) > bd) continue;
       const d = hyp(q.x - b.x, q.y - b.y);
       if (d < bd) {
         bd = d;
@@ -2017,17 +2436,37 @@ export class OnlineRoomManager {
     const hurt = b.hp + b.sh < 65;
     const sight = tg !== null && bd < 750 && this.hasLineOfSight(room, b, tg);
 
+    if ((b.hl ?? 0) > 0) {
+      if (sight && bd < 165) {
+        b.hl = 0;
+        b.ht = 0;
+        b.hw = 0;
+        this.chooseBotWeaponForDistance(b, bd);
+      } else {
+        if (sd > zr - 110) {
+          b.vx = zx - b.x;
+          b.vy = zy - b.y;
+        } else if (tg && bd < 420) {
+          b.vx = b.x - tg.x;
+          b.vy = b.y - tg.y;
+        }
+        return;
+      }
+    }
+
     if (b.cd <= 0 && (!sight || bd > 220)) {
-      if (b.hp < 80 && this.countItem(b, 7) > 0) {
-        this.useConsumable(b, 7);
-        b.cd = 0.9;
-        return;
-      }
-      if (b.sh < 80 && this.countItem(b, 8) > 0) {
-        this.useConsumable(b, 8);
-        b.cd = 0.9;
-        return;
-      }
+      const tryEquipAndHeal = (itemId: number): boolean => {
+        if (this.countItem(b, itemId) < 1) return false;
+        const slot = b.inv.indexOf(itemId);
+        if (slot < 0) return false;
+        b.sl = slot;
+        b.w = itemId;
+        this.startHeal(room, b);
+        return (b.hl ?? 0) > 0;
+      };
+      if (b.hp < 75 && tryEquipAndHeal(7)) return;
+      if (b.sh < 50 && tryEquipAndHeal(12)) return;
+      if (b.sh < 80 && tryEquipAndHeal(8)) return;
     }
 
     const needStormMove = sd > zr - 110 ? (b.zs = 1) : sd < zr - 210 ? (b.zs = 0) : b.zs;
@@ -2039,7 +2478,7 @@ export class OnlineRoomManager {
       hurt &&
       tg &&
       bd < 360 &&
-      !room.loot.some((l) => l.w >= 7 && l.w <= 8 && hyp(l.x - b.x, l.y - b.y) < 300)
+      !room.loot.some((l) => l.w >= 7 && hyp(l.x - b.x, l.y - b.y) < 300)
     ) {
       b.vx = b.x - tg.x;
       b.vy = b.y - tg.y;
@@ -2149,12 +2588,16 @@ export class OnlineRoomManager {
                   ? 0.45
                   : 1.9
                 : l.w === 8
-                  ? b.sh < 70
+                  ? b.sh < 75
                     ? 0.5
                     : 1.9
-                  : isGun(l.w)
-                    ? 0.6
-                    : 2.5;
+                  : l.w === 12
+                    ? b.sh < 50
+                      ? 0.45
+                      : 2.2
+                    : isGun(l.w)
+                      ? 0.6
+                      : 2.5;
             const dd = d * weight;
             if (dd < bestScore && this.canBotPickup(b, l)) {
               bestScore = dd;
@@ -2275,6 +2718,9 @@ export class OnlineRoomManager {
       rl: Math.round(p.rl * 100) / 100,
       rt: Math.round(p.rt * 100) / 100,
       rw: p.rw,
+      hl: Math.round((p.hl || 0) * 100) / 100,
+      ht: Math.round((p.ht || 0) * 100) / 100,
+      hw: p.hw || 0,
       hitFlash: Math.round(p.hitFlash * 100) / 100,
       recoil: Math.round(p.recoil * 100) / 100,
       dm: Math.round(p.dm),

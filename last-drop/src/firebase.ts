@@ -123,6 +123,8 @@ function sanitizeProfilePayload(profile: UserProfile) {
 
   return {
     coins: Math.max(0, Math.min(10000000, Math.floor(profile.coins || 0))),
+    gems: Math.max(0, Math.min(10000000, Math.floor(profile.gems || 0))),
+    nameChangesUsed: Math.max(0, Math.min(100000, Math.floor(profile.nameChangesUsed || 0))),
     xp: Math.max(0, Math.min(100000000, Math.floor(profile.xp || 0))),
     hype: Math.max(0, Math.min(1000000, Math.floor(profile.hype || 0))),
     eq: typeof profile.eq === 'number' ? Math.max(-1, Math.min(20, Math.floor(profile.eq))) : -1,
@@ -184,6 +186,8 @@ export async function loadOrCreateCloudAccount(
     const data = snap.data();
     const sanitized = sanitizeProfilePayload({
       ...seedProfile,
+      gems: 0,
+      nameChangesUsed: 0,
       ...(data as Partial<UserProfile>),
     });
     return {

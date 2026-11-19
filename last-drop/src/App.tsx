@@ -15,6 +15,8 @@ import {
 import { playSfx, stopLobbyMusic, syncLobbyMusic } from './game/audio';
 import {
   DEFAULT_KEYBINDS,
+  GemPack,
+  NAME_CHANGE_GEM_COST,
   RARITY_COLORS,
   RARITY_NAMES,
   RARITY_WEIGHTS,
@@ -269,6 +271,12 @@ export default function App() {
 
       if (activeScreen === 'TITLE_MENU') {
         const tag = (e.target as HTMLElement | null)?.tagName;
+        if (e.key === 'Escape' && titleTabRef.current !== 'play' && !listeningRef.current) {
+          e.preventDefault();
+          handleUiClick();
+          setTitleTab('play');
+          return;
+        }
         if (
           titleTabRef.current === 'play' &&
           (e.key === 'Enter' || e.key === ' ') &&
@@ -521,14 +529,88 @@ export default function App() {
     }
   };
 
-  const handleUpdateDisplayName = (rawName: string) => {
+  const handleSelectGemPack = (pack: GemPack) => {
+    setShopNotice(
+      `${pack.name} (${pack.gems.toLocaleString()} Gems · ${pack.priceLabel}) — Checkout & payment processing will be enabled before Season 1.`
+    );
+  };
+
+  const handleUpdateDisplayName = (rawName: string): { ok: boolean; message: string } => {
     const clean = rawName.trim().replace(/[<>&"']/g, '').slice(0, 16);
-    if (!clean || !googleUser || !cloudProfile) return;
-    setCloudDisplayName(clean);
-    cloudDisplayNameRef.current = clean;
-    void saveCloudAccount(googleUser.uid, clean, cloudProfile, db.mode).catch((err) => {
-      setAuthErrorMsg(err instanceof Error ? err.message : 'Failed to update name.');
-    });
+    if (!clean) {
+      return { ok: false, message: 'Enter a valid username (1–16 characters).' };
+    }
+    if (!googleUser && (!db.cur || !db.users[db.cur])) {
+      return {
+        ok: false,
+        message: 'Sign in with Google or create a local profile to change your username.',
+      };
+    }
+
+    const currentName = googleUser ? cloudDisplayName : db.cur || '';
+    if (clean === currentName) {
+      return { ok: false, message: 'Enter a different username than your current one.' };
+    }
+
+    const used = activeProfile.nameChangesUsed || 0;
+    const cost = used === 0 ? 0 : NAME_CHANGE_GEM_COST;
+    const currentGems = activeProfile.gems || 0;
+
+    if (cost > 0 && currentGems < cost) {
+      return {
+        ok: false,
+        message: `Need ${cost.toLocaleString()} Gems to change username (you have ${currentGems.toLocaleString()} Gems).`,
+      };
+    }
+
+    if (googleUser && cloudProfile) {
+      const nextCloud = structuredClone(cloudProfile);
+      nextCloud.gems = Math.max(0, (nextCloud.gems || 0) - cost);
+      nextCloud.nameChangesUsed = (nextCloud.nameChangesUsed || 0) + 1;
+      cloudProfileRef.current = nextCloud;
+      setCloudProfile(nextCloud);
+      setCloudDisplayName(clean);
+      cloudDisplayNameRef.current = clean;
+      void saveCloudAccount(googleUser.uid, clean, nextCloud, db.mode).catch((err) => {
+        setAuthErrorMsg(err instanceof Error ? err.message : 'Failed to update name.');
+      });
+      return {
+        ok: true,
+        message:
+          cost === 0
+            ? `Username changed to ${clean} (free 1st change used). Future changes cost ${NAME_CHANGE_GEM_COST.toLocaleString()} Gems.`
+            : `Username changed to ${clean} (-${cost.toLocaleString()} Gems).`,
+      };
+    }
+
+    if (db.cur && db.users[db.cur]) {
+      const oldName = db.cur;
+      if (db.users[clean]) {
+        return { ok: false, message: `Local username "${clean}" is already in use.` };
+      }
+      const nextUsers = { ...db.users };
+      const clonedEntry = structuredClone(nextUsers[oldName]);
+      clonedEntry.u.gems = Math.max(0, (clonedEntry.u.gems || 0) - cost);
+      clonedEntry.u.nameChangesUsed = (clonedEntry.u.nameChangesUsed || 0) + 1;
+      delete nextUsers[oldName];
+      nextUsers[clean] = clonedEntry;
+      const nextDb: GameDB = {
+        ...db,
+        cur: clean,
+        users: nextUsers,
+      };
+      saveDB(nextDb);
+      setDb(nextDb);
+      return {
+        ok: true,
+        message:
+          cost === 0
+            ? `Username changed to ${clean} (free 1st change used). Future changes cost ${NAME_CHANGE_GEM_COST.toLocaleString()} Gems.`
+            : `Username changed to ${clean} (-${cost.toLocaleString()} Gems).`,
+      };
+    }
+
+    return { ok: false, message: 'Unable to update username.' };
   };
 
   const showCrosshair =
@@ -613,6 +695,7 @@ export default function App() {
           }}
           onGoogleSignIn={handleGoogleSignIn}
           onGoogleSignOut={handleGoogleSignOut}
+          onSelectGemPack={handleSelectGemPack}
           onUpdateDisplayName={handleUpdateDisplayName}
           onAuth={handleAuth}
           onSignOut={() => {
@@ -639,6 +722,10 @@ export default function App() {
             returnToLobby();
           }}
           onJumpPlane={() => engine.jumpFromPlane()}
+          onSkipCountdown={() => {
+            handleUiClick();
+            engine.skipSpawnCountdown();
+          }}
           onSelectSlot={(idx) => engine.selectSlot(idx)}
           onSwapSlots={(a, b) => engine.swapSlots(a, b)}
           onDropSlot={(idx) => engine.dropSlot(idx)}
